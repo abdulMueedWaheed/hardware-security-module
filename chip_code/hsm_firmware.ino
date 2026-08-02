@@ -35,22 +35,23 @@
 #include <mbedtls/sha256.h>
 
 // ---------------- Pin assignments ----------------
-#define BUTTON_PIN 10
-#define LDR_PIN    11
-#define LED_RED    16
-#define LED_YELLOW 15
+#define BUTTON_PIN   10
+#define LDR_PIN      4
+#define LED_RED      16
+#define LED_YELLOW   15
+
 
 // ---------------- Tamper detection ----------------
-// IMPORTANT: run LDRVAL a few times under normal ("closed") conditions and
-// under "tampered/opened" conditions to pick real numbers for your enclosure.
 int ldrBaseline = 0;
-int TAMPER_THRESHOLD = 1500;   // placeholder - calibrate against your setup
+int TAMPER_THRESHOLD = 1700;   // placeholder - calibrate against your setup
 const unsigned long TAMPER_CHECK_INTERVAL_MS = 250;
 unsigned long lastTamperCheck = 0;
 const int LDR_SAMPLES = 5;
 
+
 // ---------------- Authorization ----------------
 const unsigned long AUTH_TIMEOUT_MS = 8000;
+
 
 // ---------------- State machine ----------------
 enum HsmState {
@@ -64,15 +65,30 @@ enum HsmState {
 };
 volatile HsmState currentState = STATE_INIT;
 
+
 // ---------------- Crypto / storage handles ----------------
 Preferences prefs;
 mbedtls_entropy_context entropy;
 mbedtls_ctr_drbg_context ctr_drbg;
 bool keyExists = false;
 
+
 // ---------------- LED blink bookkeeping ----------------
 unsigned long lastBlink = 0;
 bool blinkOn = false;
+
+
+// ---------------- Host time sync ----------------
+unsigned long hostTimeAtSync = 0;  // unix timestamp received from host
+unsigned long millisAtSync = 0;    // millis() value at that sync moment
+bool timeSynced = false;
+
+// ---------------- Audit logging ----------------
+#define LOG_MAX_ENTRIES 20
+#define LOG_ENTRY_MAXLEN 40
+
+unsigned long logCounter = 0;
+
 
 // =====================================================================
 // SETUP
@@ -118,6 +134,107 @@ void loop() {
     }
   }
 }
+
+
+// =====================================================================
+// COMMAND HANDLING
+// =====================================================================
+void handleCommand(String cmd) {
+  if (currentState == STATE_TAMPER_LOCKED) {
+    Serial.println("ERR_LOCKED_TAMPER_DETECTED");
+    return;
+  }
+  
+  if (currentState == STATE_ERROR) {
+    Serial.println("ERR_SELFTEST_FAILED_MODULE_HALTED");
+    return;
+  }
+
+  if (cmd == "PING") {
+    Serial.println("PONG_HSM_READY");
+  }
+  
+  else if (cmd == "STATUS") {
+    printStatus();
+  }
+
+  else if (cmd == "LOG") {
+    printLog();
+  }
+  
+  else if (cmd == "GENKEY") {
+    if (!requireAuthorization()) {
+      Serial.println("ERR_AUTH_TIMEOUT");
+      currentState = STATE_IDLE;
+      return;
+    }
+    currentState = STATE_PROCESSING;
+    genKey();
+    currentState = STATE_IDLE;
+  }
+
+  else if (cmd == "GETPUBKEY") {
+    getPubKey();
+  }
+  
+  else if (cmd.startsWith("SIGN:")) {
+    if (!keyExists) {
+      Serial.println("ERR_NO_KEY");
+      return;
+    }
+    if (!requireAuthorization()) {
+      Serial.println("ERR_AUTH_TIMEOUT");
+      currentState = STATE_IDLE;
+      return;
+    }
+    currentState = STATE_PROCESSING;
+    signData(cmd.substring(5));
+    currentState = STATE_IDLE;
+  }
+  
+  else if (cmd == "ZEROIZE") {
+    if (!requireAuthorization()) {
+      Serial.println("ERR_AUTH_TIMEOUT");
+      currentState = STATE_IDLE;
+      return;
+    }
+    currentState = STATE_PROCESSING;
+    zeroizeKeys();
+    Serial.println("OK_ZEROIZED");
+    currentState = STATE_IDLE;
+  }
+  
+  else if (cmd.startsWith("SETTIME:")) {
+    unsigned long ts = strtoul(cmd.substring(8).c_str(), NULL, 10);
+    hostTimeAtSync = ts;
+    millisAtSync = millis();
+    timeSynced = true;
+    Serial.println("OK_TIME_SYNCED");
+  }
+
+  else if (cmd == "LDRVAL") {
+    Serial.println(analogRead(LDR_PIN));
+  }
+  
+  else {
+    Serial.println("ERR_UNKNOWN_COMMAND");
+  }
+}
+
+void printStatus() {
+  Serial.print("STATE:");
+  switch (currentState) {
+    case STATE_IDLE:           Serial.println("IDLE"); break;
+    case STATE_AWAITING_AUTH:  Serial.println("AWAITING_AUTH"); break;
+    case STATE_PROCESSING:     Serial.println("PROCESSING"); break;
+    case STATE_TAMPER_LOCKED:  Serial.println("TAMPER_LOCKED"); break;
+    case STATE_ERROR:          Serial.println("ERROR"); break;
+    default:                   Serial.println("UNKNOWN"); break;
+  }
+  Serial.print("KEY_PRESENT:");
+  Serial.println(keyExists ? "YES" : "NO");
+}
+
 
 // =====================================================================
 // SELF-TESTS (FIPS 140-2 Area 9 - power-up tests)
@@ -193,16 +310,19 @@ int readLDRAveraged() {
   return sum / LDR_SAMPLES;
 }
 
+
 void checkTamper() {
   if (currentState == STATE_TAMPER_LOCKED) return;
   if (millis() - lastTamperCheck < TAMPER_CHECK_INTERVAL_MS) return;
   lastTamperCheck = millis();
 
   int reading = readLDRAveraged();
-  if (abs(reading - ldrBaseline) > TAMPER_THRESHOLD) {
+  int current_value = abs(reading - ldrBaseline);
+  if (current_value > TAMPER_THRESHOLD) {
     zeroizeKeys();
     currentState = STATE_TAMPER_LOCKED;
-    Serial.println("TAMPER_DETECTED_KEYS_ZEROIZED");
+    Serial.print("TAMPER_DETECTED_KEYS_ZEROIZED, current_value: ");
+    Serial.println(current_value);
   }
 }
 
@@ -211,6 +331,7 @@ void checkTamper() {
 // =====================================================================
 // Blocks until the button is pressed (fresh press) or times out.
 // Returns true if authorized, false on timeout.
+
 bool requireAuthorization() {
   currentState = STATE_AWAITING_AUTH;
   Serial.println("AWAITING_AUTH_PRESS_BUTTON");
@@ -240,6 +361,7 @@ bool requireAuthorization() {
 // =====================================================================
 // LED STATUS (mirrors the finite state model)
 // =====================================================================
+
 void updateLEDs() {
   unsigned long now = millis();
 
@@ -282,84 +404,6 @@ void updateLEDs() {
   }
 }
 
-// =====================================================================
-// COMMAND HANDLING
-// =====================================================================
-void handleCommand(String cmd) {
-  if (currentState == STATE_TAMPER_LOCKED) {
-    Serial.println("ERR_LOCKED_TAMPER_DETECTED");
-    return;
-  }
-  if (currentState == STATE_ERROR) {
-    Serial.println("ERR_SELFTEST_FAILED_MODULE_HALTED");
-    return;
-  }
-
-  if (cmd == "PING") {
-    Serial.println("PONG_HSM_READY");
-  }
-  else if (cmd == "STATUS") {
-    printStatus();
-  }
-  else if (cmd == "LDRVAL") {
-    Serial.println(analogRead(LDR_PIN));
-  }
-  else if (cmd == "GENKEY") {
-    if (!requireAuthorization()) {
-      Serial.println("ERR_AUTH_TIMEOUT");
-      currentState = STATE_IDLE;
-      return;
-    }
-    currentState = STATE_PROCESSING;
-    genKey();
-    currentState = STATE_IDLE;
-  }
-  else if (cmd == "GETPUBKEY") {
-    getPubKey();
-  }
-  else if (cmd.startsWith("SIGN:")) {
-    if (!keyExists) {
-      Serial.println("ERR_NO_KEY");
-      return;
-    }
-    if (!requireAuthorization()) {
-      Serial.println("ERR_AUTH_TIMEOUT");
-      currentState = STATE_IDLE;
-      return;
-    }
-    currentState = STATE_PROCESSING;
-    signData(cmd.substring(5));
-    currentState = STATE_IDLE;
-  }
-  else if (cmd == "ZEROIZE") {
-    if (!requireAuthorization()) {
-      Serial.println("ERR_AUTH_TIMEOUT");
-      currentState = STATE_IDLE;
-      return;
-    }
-    currentState = STATE_PROCESSING;
-    zeroizeKeys();
-    Serial.println("OK_ZEROIZED");
-    currentState = STATE_IDLE;
-  }
-  else {
-    Serial.println("ERR_UNKNOWN_COMMAND");
-  }
-}
-
-void printStatus() {
-  Serial.print("STATE:");
-  switch (currentState) {
-    case STATE_IDLE:           Serial.println("IDLE"); break;
-    case STATE_AWAITING_AUTH:  Serial.println("AWAITING_AUTH"); break;
-    case STATE_PROCESSING:     Serial.println("PROCESSING"); break;
-    case STATE_TAMPER_LOCKED:  Serial.println("TAMPER_LOCKED"); break;
-    case STATE_ERROR:          Serial.println("ERROR"); break;
-    default:                   Serial.println("UNKNOWN"); break;
-  }
-  Serial.print("KEY_PRESENT:");
-  Serial.println(keyExists ? "YES" : "NO");
-}
 
 // =====================================================================
 // KEY MANAGEMENT (FIPS 140-2 Area 7)
@@ -372,6 +416,7 @@ void genKey() {
                                   mbedtls_ctr_drbg_random, &ctr_drbg);
   if (ret != 0) {
     Serial.println("ERR_KEYGEN_FAILED");
+    logEvent("ERR_KEYGEN_FAILED");
     mbedtls_ecdsa_free(&ecdsa);
     return;
   }
@@ -393,6 +438,8 @@ void genKey() {
   if (ret != 0) {
     Serial.println("ERR_PAIRWISE_CONSISTENCY_FAILED");
     mbedtls_ecdsa_free(&ecdsa);
+
+    logEvent("ERR_PAIRWISE_CONSISTENCY_FAILED");
     return;
   }
 
@@ -413,17 +460,20 @@ void genKey() {
   memset(priv_buf, 0, sizeof(priv_buf)); // clear private key from RAM
 
   Serial.println("OK_KEY_GENERATED");
+  logEvent("OK_KEY_GENERATED");
 }
 
 void getPubKey() {
   if (!keyExists) {
     Serial.println("ERR_NO_KEY");
+    logEvent("ERR_NO_KEY");
     return;
   }
   unsigned char pub_buf[65];
   size_t len = prefs.getBytes("pubkey", pub_buf, sizeof(pub_buf));
   if (len == 0) {
     Serial.println("ERR_NO_KEY");
+    logEvent("ERR_NO_KEY");
     return;
   }
   String hexStr = "";
@@ -432,6 +482,7 @@ void getPubKey() {
     hexStr += String(pub_buf[i], HEX);
   }
   Serial.println(hexStr);
+  logEvent("PUB_KEY_RETURNED");
 }
 
 int hexStringToBytes(String hex, unsigned char *out, size_t maxLen) {
@@ -478,6 +529,7 @@ void signData(String hexData) {
 
   if (ret != 0) {
     Serial.println("ERR_SIGN_FAILED");
+    logEvent("ERR_SIGN_FAILED");
     return;
   }
 
@@ -487,10 +539,65 @@ void signData(String hexData) {
     hexSig += String(sig[i], HEX);
   }
   Serial.println(hexSig);
+  logEvent("KEY_SIGNED_SUCCESS");
 }
 
 void zeroizeKeys() {
   prefs.remove("privkey");
   prefs.remove("pubkey");
   keyExists = false;
+
+  logEvent("KEY_ZEROIZED");
 }
+
+// =====================================================================
+// Timing and Logging stuff
+// =====================================================================
+
+unsigned long getCurrentUnixTime() {
+  if (!timeSynced) return 0; // no sync yet, caller should treat 0 as "unknown"
+  unsigned long elapsedSec = (millis() - millisAtSync) / 1000;
+  return hostTimeAtSync + elapsedSec;
+}
+
+void logEvent(const char *eventType) {
+  logCounter++;
+
+  char entry[LOG_ENTRY_MAXLEN];
+  unsigned long ts = getCurrentUnixTime();
+  if (ts > 0) {
+    snprintf(entry, sizeof(entry), "#%lu [%lu] %s", logCounter, ts, eventType);
+  } else {
+    snprintf(entry, sizeof(entry), "#%lu [unsynced] %s", logCounter, eventType);
+  }
+
+  int slot = logCounter % LOG_MAX_ENTRIES;
+  char key[12];
+  snprintf(key, sizeof(key), "log_%d", slot);
+  prefs.putString(key, entry);
+  prefs.putULong("log_count", logCounter);
+}
+
+void printLog() {
+  unsigned long total = prefs.getULong("log_count", 0);
+  if (total == 0) {
+    Serial.println("LOG_EMPTY");
+    return;
+  }
+
+  unsigned long start = (total > LOG_MAX_ENTRIES) ? (total - LOG_MAX_ENTRIES + 1) : 1;
+
+  Serial.println("LOG_BEGIN");
+  for (unsigned long i = start; i <= total; i++) {
+    int slot = i % LOG_MAX_ENTRIES;
+    char key[12];
+    snprintf(key, sizeof(key), "log_%d", slot);
+    String entry = prefs.getString(key, "");
+    if (entry.length() > 0) {
+      Serial.println(entry);
+    }
+  }
+  Serial.println("LOG_END");
+}
+
+
