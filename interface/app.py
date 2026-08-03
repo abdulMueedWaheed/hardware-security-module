@@ -1,6 +1,7 @@
 import streamlit as st
-from hsm_client import HSMClient
+from cli import parse_log_line
 from crypto_utils import parse_pubkey, verify_signature
+from hsm_client import HSMClient
 
 st.set_page_config(page_title="ESP32 HSM Console", layout="centered")
 st.title("🔐 ESP32-S3 HSM Console")
@@ -57,7 +58,14 @@ st.divider()
 
 if st.button("View Audit Log"):
     log_lines = hsm.send("GETLOG")
-    st.text("\n".join(log_lines))
+    entries = [
+        parse_log_line(l) for l in log_lines
+        if l not in ("LOG_BEGIN", "LOG_END", "LOG_EMPTY")
+    ]
+    if entries:
+        st.table(entries)
+    else:
+        st.info("No log entries yet.")
 
 if st.button("Zeroize Keys", type="primary"):
     result = hsm.send_and_wait_for_auth("ZEROIZE")

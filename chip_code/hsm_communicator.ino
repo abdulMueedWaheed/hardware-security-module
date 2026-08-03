@@ -26,7 +26,7 @@
  *   GETPUBKEY              -> hex-encoded uncompressed public key / ERR_NO_KEY
  *   SIGN:<hexdata>         -> requires button press -> hex-encoded DER signature
  *   ZEROIZE                -> requires button press -> OK_ZEROIZED
- *   LOG                    -> prints out log
+ *   GETLOG                 -> prints out log
  */
 
 #include "globals.h"
@@ -49,7 +49,7 @@ volatile HsmState currentState = STATE_INIT;
 bool keyExists = false;
 
 int ldrBaseline = 0;
-int TAMPER_THRESHOLD = 1700;
+int TAMPER_THRESHOLD = 4000;
 
 const unsigned long TAMPER_CHECK_INTERVAL_MS = 250;
 const unsigned long AUTH_TIMEOUT_MS = 8000;
@@ -135,7 +135,7 @@ void handleCommand(String cmd) {
     printStatus();
   }
 
-  else if (cmd == "LOG") {
+  else if (cmd == "GETLOG") {
     printLog();
   }
   

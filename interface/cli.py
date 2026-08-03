@@ -1,7 +1,22 @@
+import re
 import sys
+from datetime import datetime
 
 from crypto_utils import parse_pubkey, verify_signature
 from hsm_client import HSMClient
+
+LOG_LINE_RE = re.compile(r"^#(\d+) \[(\d+|unsynced)\] (.+)$")
+
+def parse_log_line(line: str) -> dict:
+    m = LOG_LINE_RE.match(line)
+    if not m:
+        return {"seq": None, "time": None, "event": line}
+    seq, ts, event = m.groups()
+    if ts == "unsynced":
+        time_str = "— (unsynced)"
+    else:
+        time_str = datetime.fromtimestamp(int(ts)).strftime("%Y-%m-%d %H:%M:%S")
+    return {"seq": int(seq), "time": time_str, "event": event}
 
 
 def main():
@@ -19,7 +34,7 @@ def main():
         print("Self-test failed on device.\n")
 
     print(hsm.sync_time())
-    print("Commands: PING | STATUS | LDRVAL | GENKEY | GETPUBKEY | SIGN:<text> | ZEROIZE | LOG | EXIT\n")
+    print("Commands: PING | STATUS | LDRVAL | GENKEY | GETPUBKEY | SIGN:<text> | ZEROIZE | GETLOG | EXIT\n")
 
     running = True
     while running:
@@ -45,7 +60,7 @@ def main():
             print(hsm.send_and_wait_for_auth(msg.upper(), on_status=lambda l: print(">>>", l)))
         else:
             for line in hsm.send(msg):
-                print(line)
+                print(parse_log_line(line))
 
     hsm.close()
     print("Ok bye!")

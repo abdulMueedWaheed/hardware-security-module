@@ -120,9 +120,7 @@ void genKey() {
                                   MBEDTLS_ECP_PF_UNCOMPRESSED, &pub_len,
                                   pub_buf, sizeof(pub_buf));
 
-  prefs.putBytes("privkey", priv_buf, sizeof(priv_buf));
-  prefs.putBytes("pubkey", pub_buf, pub_len);
-  keyExists = true;
+  keystore_save_keypair(priv_buf, sizeof(priv_buf), pub_buf, pub_len);
 
   mbedtls_ecdsa_free(&ecdsa);
   memset(priv_buf, 0, sizeof(priv_buf)); // clear private key from RAM
@@ -132,23 +130,26 @@ void genKey() {
 }
 
 void getPubKey() {
-  if (!keyExists) {
+  if (!keystore_key_exists()) {
     Serial.println("ERR_NO_KEY");
     logEvent("ERR_NO_KEY");
     return;
   }
   unsigned char pub_buf[65];
-  size_t len = prefs.getBytes("pubkey", pub_buf, sizeof(pub_buf));
+  size_t len = keystore_load_public_key(pub_buf, sizeof(pub_buf));
+
   if (len == 0) {
     Serial.println("ERR_NO_KEY");
     logEvent("ERR_NO_KEY");
     return;
   }
+
   String hexStr = "";
   for (size_t i = 0; i < len; i++) {
     if (pub_buf[i] < 0x10) hexStr += "0";
     hexStr += String(pub_buf[i], HEX);
   }
+
   Serial.println(hexStr);
   logEvent("PUB_KEY_RETURNED");
 }
@@ -177,9 +178,11 @@ void signData(String hexData) {
   mbedtls_sha256(outData, dataLen, hash, 0);
 
   unsigned char priv_buf[32];
-  size_t privLen = prefs.getBytes("privkey", priv_buf, sizeof(priv_buf));
+  size_t privLen = keystore_load_private_key(priv_buf, sizeof(priv_buf));
+  
   if (privLen == 0) {
     Serial.println("ERR_NO_KEY");
+    logEvent("ERR_NO_KEY");
     return;
   }
 

@@ -71,7 +71,29 @@ void zeroizeKeys() {
   logEvent("KEY_ZEROIZED");
 }
 
+// =====================================================================
+// Key storage abstraction (NVS-backed implementation)
+// =====================================================================
 
+bool keystore_save_keypair(const unsigned char *privKey, size_t privLen,
+                            const unsigned char *pubKey, size_t pubLen) {
+  size_t w1 = prefs.putBytes("privkey", privKey, privLen);
+  size_t w2 = prefs.putBytes("pubkey", pubKey, pubLen);
+  keyExists = (w1 == privLen && w2 == pubLen);
+  return keyExists;
+}
+
+size_t keystore_load_private_key(unsigned char *privKeyOut, size_t maxLen) {
+  return prefs.getBytes("privkey", privKeyOut, maxLen);
+}
+
+size_t keystore_load_public_key(unsigned char *pubKeyOut, size_t maxLen) {
+  return prefs.getBytes("pubkey", pubKeyOut, maxLen);
+}
+
+bool keystore_key_exists() {
+  return keyExists;
+}
 
 
 
