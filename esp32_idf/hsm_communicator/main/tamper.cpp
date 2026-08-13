@@ -1,0 +1,297 @@
+#include "tamper.h"
+
+#include "storage.h"
+
+#include "esp_log.h"
+#include "esp_timer.h"
+#include "esp_adc/adc_oneshot.h"
+#include "driver/gpio.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include <cstdlib>
+
+static const char *TAG = "TAMPER";
+
+static adc_oneshot_unit_handle_t adc_handle = nullptr;
+static adc_unit_t ldr_adc_unit;
+static adc_channel_t ldr_adc_channel;
+
+
+// =====================================================================
+// TAMPER HARDWARE INITIALIZATION
+// =====================================================================
+
+bool initTamper()
+{
+    /*
+     * GPIO 4 on the ESP32-S3 is ADC1_CH3.
+     *
+     * We use adc_oneshot_io_to_channel() rather than hard-coding the
+     * ADC channel so the relationship is established by ESP-IDF.
+     */
+
+    esp_err_t err = adc_oneshot_io_to_channel(
+        LDR_PIN,
+        &ldr_adc_unit,
+        &ldr_adc_channel
+    );
+
+    if (err != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "LDR GPIO %d is not a valid ADC input: %s",
+            LDR_PIN,
+            esp_err_to_name(err)
+        );
+
+        return false;
+    }
+
+    adc_oneshot_unit_init_cfg_t unit_config = {
+        .unit_id = ldr_adc_unit,
+        .clk_src = ADC_RTC_CLK_SRC_DEFAULT,
+        .ulp_mode = ADC_ULP_MODE_DISABLE
+    };
+
+    err = adc_oneshot_new_unit(
+        &unit_config,
+        &adc_handle
+    );
+
+    if (err != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Failed to initialize ADC unit: %s",
+            esp_err_to_name(err)
+        );
+
+        return false;
+    }
+
+    adc_oneshot_chan_cfg_t channel_config = {
+        .atten = ADC_ATTEN_DB_12,
+        .bitwidth = ADC_BITWIDTH_DEFAULT,
+    };
+
+    err = adc_oneshot_config_channel(
+        adc_handle,
+        ldr_adc_channel,
+        &channel_config
+    );
+
+    if (err != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Failed to configure LDR ADC channel: %s",
+            esp_err_to_name(err)
+        );
+
+        adc_oneshot_del_unit(adc_handle);
+        adc_handle = nullptr;
+
+        return false;
+    }
+
+    ESP_LOGI(
+        TAG,
+        "LDR initialized on GPIO %d (ADC%d channel %d)",
+        LDR_PIN,
+        static_cast<int>(ldr_adc_unit) + 1,
+        static_cast<int>(ldr_adc_channel)
+    );
+
+    return true;
+}
+
+
+// =====================================================================
+// TAMPER DETECTION
+// =====================================================================
+
+// ---------------- Tamper detection smoothing ----------------
+
+int readLDRAveraged()
+{
+    if (adc_handle == nullptr) {
+        ESP_LOGE(TAG, "ADC has not been initialized");
+        return -1;
+    }
+
+    long sum = 0;
+
+    for (int i = 0; i < LDR_SAMPLES; ++i) {
+
+        int reading = 0;
+
+        esp_err_t err = adc_oneshot_read(
+            adc_handle,
+            ldr_adc_channel,
+            &reading
+        );
+
+        if (err != ESP_OK) {
+            ESP_LOGE(
+                TAG,
+                "ADC read failed: %s",
+                esp_err_to_name(err)
+            );
+
+            return -1;
+        }
+
+        sum += reading;
+
+        vTaskDelay(
+            pdMS_TO_TICKS(2)
+        );
+    }
+
+    return static_cast<int>(
+        sum / LDR_SAMPLES
+    );
+}
+
+
+void checkTamper()
+{
+    if (currentState == STATE_TAMPER_LOCKED) {
+        return;
+    }
+
+    /*
+     * esp_timer_get_time() returns microseconds since boot.
+     * Convert to milliseconds to preserve the semantics of the old
+     * Arduino millis() implementation.
+     */
+
+    uint32_t nowMs = static_cast<uint32_t>(
+        esp_timer_get_time() / 1000ULL
+    );
+
+    if (
+        nowMs - lastTamperCheck <
+        TAMPER_CHECK_INTERVAL_MS
+    ) {
+        return;
+    }
+
+    lastTamperCheck = nowMs;
+
+    int reading = readLDRAveraged();
+
+    if (reading < 0) {
+        /*
+         * ADC failure is not a normal sensor reading.
+         * Treating it as tamper would be possible, but that is a
+         * separate policy decision. For now, leave the state unchanged.
+         */
+        return;
+    }
+
+    int current_value = std::abs(
+        reading - ldrBaseline
+    );
+
+    if (current_value > TAMPER_THRESHOLD) {
+
+        zeroizeKeys();
+
+        currentState = STATE_TAMPER_LOCKED;
+
+        ESP_LOGE(
+            TAG,
+            "TAMPER_DETECTED_KEYS_ZEROIZED, current_value: %d",
+            current_value
+        );
+    }
+}
+
+
+// =====================================================================
+// AUTHORIZATION GATE
+// =====================================================================
+
+// Blocks until the button is pressed (fresh press) or times out.
+// Returns true if authorized, false on timeout/tamper.
+
+bool requireAuthorization()
+{
+    currentState = STATE_AWAITING_AUTH;
+
+    ESP_LOGI(
+        TAG,
+        "AWAITING_AUTH_PRESS_BUTTON"
+    );
+
+    uint32_t startMs = static_cast<uint32_t>(
+        esp_timer_get_time() / 1000ULL
+    );
+
+    /*
+     * If the button is already held down, wait for release first.
+     * This prevents a stale press from automatically authorizing
+     * the next command.
+     */
+
+    while (gpio_get_level(
+               static_cast<gpio_num_t>(BUTTON_PIN)
+           ) == 1 &&
+           static_cast<uint32_t>(
+               esp_timer_get_time() / 1000ULL
+           ) - startMs < AUTH_TIMEOUT_MS) {
+
+        checkTamper();
+
+        if (currentState == STATE_TAMPER_LOCKED) {
+            return false;
+        }
+
+        vTaskDelay(
+            pdMS_TO_TICKS(20)
+        );
+    }
+
+    startMs = static_cast<uint32_t>(
+        esp_timer_get_time() / 1000ULL
+    );
+
+    while (
+        static_cast<uint32_t>(
+            esp_timer_get_time() / 1000ULL
+        ) - startMs < AUTH_TIMEOUT_MS
+    ) {
+
+        if (gpio_get_level(
+                static_cast<gpio_num_t>(BUTTON_PIN)
+            ) == 1) {
+
+            vTaskDelay(
+                pdMS_TO_TICKS(30)
+            );
+
+            if (gpio_get_level(
+                    static_cast<gpio_num_t>(BUTTON_PIN)
+                ) == 1) {
+
+                return true;
+            }
+        }
+
+        /*
+         * Stay responsive to tamper while waiting for authorization.
+         */
+
+        checkTamper();
+
+        if (currentState == STATE_TAMPER_LOCKED) {
+            return false;
+        }
+
+        vTaskDelay(
+            pdMS_TO_TICKS(10)
+        );
+    }
+
+    return false;
+}
