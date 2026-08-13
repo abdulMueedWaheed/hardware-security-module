@@ -1,79 +1,82 @@
 #include "crypto_ops.h"
+#include "globals.h"
 #include "storage.h"
 #include "tamper.h"
 
+#include "nvs_flash.h"
 #include "psa/crypto.h"
 
-volatile HsmState currentState = STATE_INIT;
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
 
 extern "C" void app_main()
 {
     currentState = STATE_INIT;
 
-    psa_status_t status = psa_crypto_init();
-
-    if (status != PSA_SUCCESS) {
-        currentState = STATE_ERROR;
-        return;
-    }
-
-    // ------------------------------------------------
-    // Initialize cryptographic subsystem
-    // ------------------------------------------------
-
-    if (psa_crypto_init() != PSA_SUCCESS) {
-        currentState = STATE_ERROR;
-        return;
-    }
-
     // ------------------------------------------------
     // Initialize NVS
     // ------------------------------------------------
 
-    // init NVS here
+    esp_err_t nvs_ret = nvs_flash_init();
 
-     if (!keystore_init()) {
+    if (nvs_ret == ESP_ERR_NVS_NO_FREE_PAGES ||
+        nvs_ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+
+        ESP_ERROR_CHECK(nvs_flash_erase());
+        nvs_ret = nvs_flash_init();
+    }
+
+    ESP_ERROR_CHECK(nvs_ret);
+
+    // ------------------------------------------------
+    // Initialize PSA Crypto
+    // ------------------------------------------------
+
+    psa_status_t psa_ret = psa_crypto_init();
+
+    if (psa_ret != PSA_SUCCESS) {
         currentState = STATE_ERROR;
         return;
     }
 
+    // ------------------------------------------------
+    // Initialize persistent key state
+    // ------------------------------------------------
+
+    if (!keystore_init()) {
+        currentState = STATE_ERROR;
+        return;
+    }
 
     // ------------------------------------------------
-    // Initialize GPIO
+    // Initialize tamper hardware
     // ------------------------------------------------
 
-    // gpio init here
-
-    
-    // ------------------------------------------------
-    // Tamper initialization
-    // ------------------------------------------------
-    // key initialization
-    // etc.
     if (!initTamper()) {
         currentState = STATE_ERROR;
         return;
     }
-    
+
     // ------------------------------------------------
-    // Self tests
+    // Power-up self tests
     // ------------------------------------------------
 
     currentState = STATE_SELFTEST;
+
     runSelfTests();
 
     if (currentState == STATE_ERROR) {
         return;
     }
 
-
     // ------------------------------------------------
     // Main loop
     // ------------------------------------------------
 
     while (true) {
-        // handle commands
-        // tamper checking
-        // state machine
+        checkTamper();
+
+        vTaskDelay(pdMS_TO_TICKS(10));
     }
 }

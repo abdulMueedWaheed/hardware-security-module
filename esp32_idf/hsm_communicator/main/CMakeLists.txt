@@ -4,6 +4,7 @@ idf_component_register(
          "crypto_ops.cpp"
          "storage.cpp"
          "tamper.cpp"
+         "globals.cpp"
 
     PRIV_REQUIRES 
          spi_flash

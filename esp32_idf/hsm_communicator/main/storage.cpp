@@ -263,20 +263,19 @@ bool keystore_init()
 
     if (status == PSA_SUCCESS) {
         keyExists = true;
-
-        psa_reset_key_attributes(
-            &attributes
-        );
-
         return true;
     }
 
-    psa_reset_key_attributes(
-        &attributes
-    );
+    if (status == PSA_ERROR_DOES_NOT_EXIST ||
+        status == PSA_ERROR_INVALID_HANDLE) {
 
-    if (status == PSA_ERROR_DOES_NOT_EXIST) {
         keyExists = false;
+
+        ESP_LOGI(
+            TAG,
+            "No persistent HSM key found; key generation required"
+        );
+
         return true;
     }
 
@@ -287,7 +286,6 @@ bool keystore_init()
     );
 
     keyExists = false;
-
     return false;
 }
 
