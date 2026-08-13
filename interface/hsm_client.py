@@ -70,5 +70,10 @@ class HSMClient:
         lines = self.send(f"SETTIME:{int(time.time())}")
         return lines[0] if lines else ""
 
+    def encrypt_flash(self, enable: bool = True) -> str:
+        cmd = "ENCRYPT:ON" if enable else "ENCRYPT:OFF"
+        lines = self.send(cmd)
+        return lines[0] if lines else ""
+
     def close(self):
         self.ser.close()

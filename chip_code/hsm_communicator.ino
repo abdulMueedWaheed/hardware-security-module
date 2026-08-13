@@ -31,6 +31,7 @@
 
 #include "globals.h"
 
+#include "esp_flash_encrypt.h"
 #include "crypto_ops.h"
 #include "storage.h"
 #include "tamper.h"
@@ -117,6 +118,20 @@ void loop() {
 // COMMAND HANDLING
 // =====================================================================
 void handleCommand(String cmd) {
+  if (cmd == "ENCRYPT:ON") {
+#ifdef CONFIG_FLASH_ENCRYPTION_ENABLED
+    esp_err_t err = esp_flash_encrypt_enable();
+    if (err == ESP_OK) {
+      Serial.println("OK_ENCRYPTION_ENABLED");
+    } else {
+      Serial.printf("ERR_ENCRYPTION:%d\n", err);
+    }
+#else
+    Serial.println("ERR_ENCRYPTION_NOT_CONFIGURED");
+#endif
+    return;
+  }
+
   if (currentState == STATE_TAMPER_LOCKED) {
     Serial.println("ERR_LOCKED_TAMPER_DETECTED");
     return;
