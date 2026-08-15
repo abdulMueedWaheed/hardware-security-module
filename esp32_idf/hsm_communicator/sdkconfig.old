@@ -1051,6 +1051,8 @@ CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_NO_CHANGE=y
 # CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_COLD_CONSTEXPR is not set
 # default:
 # CONFIG_COMPILER_CXX_GLIBCXX_CONSTEXPR_COLD is not set
+# default:
+# CONFIG_COMPILER_KASAN is not set
 # end of Compiler options
 
 #
@@ -1083,6 +1085,19 @@ CONFIG_EFUSE_MAX_BLK_LEN=256
 # end of eFuse Bit Manager
 
 #
+# ADC and ADC Calibration
+#
+# default:
+# CONFIG_ADC_ONESHOT_CTRL_FUNC_IN_IRAM is not set
+# default:
+# CONFIG_ADC_CONTINUOUS_ISR_IRAM_SAFE is not set
+# default:
+# CONFIG_ADC_CONTINUOUS_FORCE_USE_ADC2_ON_C3_S3 is not set
+# default:
+# CONFIG_ADC_ENABLE_DEBUG_LOG is not set
+# end of ADC and ADC Calibration
+
+#
 # Common ESP-related
 #
 # default:
@@ -1093,7 +1108,7 @@ CONFIG_ESP_ERR_TO_NAME_LOOKUP=y
 # GDMA Configurations
 #
 # default:
-# CONFIG_GDMA_CTRL_FUNC_IN_IRAM is not set
+CONFIG_GDMA_CTRL_FUNC_IN_IRAM=y
 # default:
 CONFIG_GDMA_ISR_HANDLER_IN_IRAM=y
 # default:
@@ -1194,6 +1209,10 @@ CONFIG_ESP_SLEEP_WAIT_FLASH_READY_EXTRA_DELAY=2000
 CONFIG_ESP_SLEEP_GPIO_ENABLE_INTERNAL_RESISTORS=y
 # default:
 # CONFIG_ESP_SLEEP_SET_FLASH_DPD is not set
+# default:
+# CONFIG_ESP_SLEEP_ENABLE_RTC_WDT_IN_SLEEP is not set
+# default:
+# CONFIG_ESP_SLEEP_ENABLE_RTC_WDT_IN_DEEP_SLEEP is not set
 # end of Sleep Config
 
 #
@@ -1320,6 +1339,15 @@ CONFIG_PM_RESTORE_CACHE_TAGMEM_AFTER_LIGHT_SLEEP=y
 # default:
 CONFIG_PM_ESP_SLEEP_POWER_DOWN_CPU=y
 # end of Power Management
+
+#
+# ESP Ringbuf
+#
+# default:
+# CONFIG_RINGBUF_IN_IRAM is not set
+# default:
+# CONFIG_RINGBUF_PLACE_ISR_FUNCTIONS_INTO_FLASH is not set
+# end of ESP Ringbuf
 
 #
 # ESP-ROM
@@ -1479,7 +1507,6 @@ CONFIG_ESP_INT_WDT=y
 CONFIG_ESP_INT_WDT_TIMEOUT_MS=300
 # default:
 CONFIG_ESP_INT_WDT_CHECK_CPU1=y
-# default:
 CONFIG_ESP_TASK_WDT_EN=y
 # default:
 CONFIG_ESP_TASK_WDT_INIT=y
@@ -2118,7 +2145,7 @@ CONFIG_MBEDTLS_AES_HW_SMALL_DATA_LEN_OPTIM=y
 # default:
 # CONFIG_MBEDTLS_SECURE_ELEMENT_DRIVER_ENABLED is not set
 # default:
-# CONFIG_MBEDTLS_HARDWARE_RSA_DS_PERIPHERAL is not set
+CONFIG_MBEDTLS_HARDWARE_RSA_DS_PERIPHERAL=y
 # end of Hardware Acceleration
 
 #
@@ -2154,6 +2181,21 @@ CONFIG_MBEDTLS_PKCS1_V21=y
 # CONFIG_MBEDTLS_CHACHA20_C is not set
 # end of Stream Cipher
 # end of mbedTLS
+
+#
+# NVS
+#
+# default:
+# CONFIG_NVS_ENCRYPTION is not set
+# default:
+# CONFIG_NVS_ASSERT_ERROR_CHECK is not set
+# default:
+# CONFIG_NVS_LEGACY_DUP_KEYS_COMPATIBILITY is not set
+# default:
+# CONFIG_NVS_BDL_STACK is not set
+# default:
+# CONFIG_NVS_FLASH_VERIFY_ERASE is not set
+# end of NVS
 
 #
 # PThreads
@@ -2302,8 +2344,7 @@ CONFIG_SPI_FLASH_ENABLE_ENCRYPTED_READ_WRITE=y
 # end of SPI Flash driver
 # end of Component config
 
-# default:
-# CONFIG_IDF_EXPERIMENTAL_FEATURES is not set
+CONFIG_IDF_EXPERIMENTAL_FEATURES=y
 
 # Deprecated options for backward compatibility
 # CONFIG_APP_BUILD_TYPE_ELF_RAM is not set

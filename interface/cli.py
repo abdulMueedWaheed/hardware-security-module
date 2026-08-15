@@ -41,8 +41,10 @@ def main():
         msg = input("Input to Chip: ").strip()
         if msg == "":
             continue
+        
         if msg == "EXIT":
             running = False
+        
         elif msg.upper().startswith("SIGN:"):
             plaintext = msg[5:]
             hex_data = plaintext.encode("utf-8").hex()
@@ -50,14 +52,22 @@ def main():
                 f"SIGN:{hex_data}",
                 on_status=lambda l: print(">>>", l)
             )
+        
             pubkey_hex = hsm.send("GETPUBKEY")[0]
             vk = parse_pubkey(pubkey_hex)
+        
             if vk and verify_signature(vk, response, hex_data):
                 print("SUCCESS —", response)
             else:
                 print("FAILED —", response)
+        
         elif msg.upper() in ("GENKEY", "ZEROIZE"):
-            print(hsm.send_and_wait_for_auth(msg.upper(), on_status=lambda l: print(">>>", l)))
+            print("Waiting for button press (Ctrl+C to abort)...")
+            try:
+                print(hsm.send_and_wait_for_auth(msg.upper(), on_status=lambda l: print(">>>", l)))
+            except KeyboardInterrupt:
+                print("\nAborted — note: firmware may still complete the operation independently.")
+        
         else:
             for line in hsm.send(msg):
                 print(parse_log_line(line))

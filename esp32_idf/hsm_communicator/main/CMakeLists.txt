@@ -15,5 +15,6 @@ idf_component_register(
          esp_adc
          esp_driver_gpio
          esp_timer
+         esp_driver_usb_serial_jtag
      
     INCLUDE_DIRS "")

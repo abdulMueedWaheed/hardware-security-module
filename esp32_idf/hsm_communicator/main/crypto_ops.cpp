@@ -250,9 +250,10 @@ void genKey()
 
     psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
 
-    psa_set_key_id(
+    psa_set_key_usage_flags(
         &attributes,
-        HSM_KEY_ID
+        PSA_KEY_USAGE_SIGN_HASH |
+        PSA_KEY_USAGE_VERIFY_HASH
     );
 
     psa_set_key_type(
@@ -263,11 +264,6 @@ void genKey()
     psa_set_key_bits(
         &attributes,
         256
-    );
-
-    psa_set_key_usage_flags(
-        &attributes,
-        PSA_KEY_USAGE_SIGN_HASH
     );
 
     psa_set_key_algorithm(

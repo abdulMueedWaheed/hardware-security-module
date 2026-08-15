@@ -253,6 +253,21 @@ bool keystore_init()
      * exists.
      */
 
+    esp_err_t err = nvs_open(
+        "hsm",
+        NVS_READWRITE,
+        &prefs
+    );
+
+    if (err != ESP_OK) {
+        ESP_LOGE(
+            TAG,
+            "Failed to open HSM NVS namespace: %s",
+            esp_err_to_name(err)
+        );
+        return false;
+    }
+
     psa_key_attributes_t attributes =
         PSA_KEY_ATTRIBUTES_INIT;
 

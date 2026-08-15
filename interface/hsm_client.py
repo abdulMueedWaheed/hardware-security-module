@@ -41,21 +41,40 @@ class HSMClient:
         return self.read_multiline()
 
     def send_and_wait_for_auth(self, cmd: str, on_status=None) -> str:
+        TERMINAL_TOKENS = (
+            "OK_KEY_GENERATED",
+            "OK_ZEROIZED",
+            "ERR_AUTH_TIMEOUT",
+            "TAMPER_DETECTED_KEYS_ZEROIZED",
+        )
+
         self.ser.write((cmd + "\n").encode("utf-8"))
-        self.ser.timeout = 3
-        while True:
-            line = self.ser.readline().decode("ascii", errors="replace").strip()
-            if line == "":
-                return ""
-            if line == "AWAITING_AUTH_PRESS_BUTTON":
+        self.ser.timeout = None
+        try:
+            while True:
+                raw = self.ser.readline()
+                line = raw.decode("ascii", errors="replace").strip()
+
+                if line == "":
+                    continue  # blank line on the wire, not a timeout (timeout=None can't time out)
+
+                if "AWAITING_AUTH_PRESS_BUTTON" in line:
+                    if on_status:
+                        on_status(line)
+                    continue
+
+                if any(tok in line for tok in TERMINAL_TOKENS):
+                    if on_status and "TAMPER_DETECTED" in line:
+                        on_status(line)
+                    return line
+
+                # Unrecognized line (e.g. an unrelated ESP_LOGI/W/E line)
+                # Don't treat it as the answer — surface it and keep waiting.
                 if on_status:
                     on_status(line)
                 continue
-            if line == "TAMPER_DETECTED_KEYS_ZEROIZED":
-                if on_status:
-                    on_status(line)
-                return line
-            return line
+        finally:
+            self.ser.timeout = 3
 
     def status(self) -> dict:
         lines = self.send("STATUS")
