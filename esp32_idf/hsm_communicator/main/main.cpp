@@ -690,15 +690,6 @@ extern "C" void app_main()
         );
     }
 
-    // usb_serial_jtag_driver_config_t usb_config = {
-    //     .tx_buffer_size = 256,
-    //     .rx_buffer_size = 256,
-    // };
-
-    // ESP_ERROR_CHECK(
-    //     usb_serial_jtag_driver_install(&usb_config)
-    // );
-
     xTaskCreate(
         commandTask,
         "command_task",
@@ -708,18 +699,35 @@ extern "C" void app_main()
         nullptr
     );
 
+    vTaskDelay(
+        pdMS_TO_TICKS(10)
+    );
+
     while (true) {
 
-        checkTamper();
+        // checkTamper();
 
-        updateLEDs();
+        // updateLEDs();
 
-        /*
-         * Give IDLE0 and other FreeRTOS tasks CPU time.
-         */
+        // /*
+        //  * Give IDLE0 and other FreeRTOS tasks CPU time.
+        //  */
 
-        vTaskDelay(
-            pdMS_TO_TICKS(10)
-        );
+        // vTaskDelay(
+        //     pdMS_TO_TICKS(10)
+        // );
+
+        for (int i = 0; i < 50; ++i) {
+            int reading = readLDRAveraged();
+
+            ESP_LOGI(
+                TAG,
+                "STARTUP_LDR[%d] = %d",
+                i,
+                reading
+            );
+
+            vTaskDelay(pdMS_TO_TICKS(100));
+        }
     }
 }

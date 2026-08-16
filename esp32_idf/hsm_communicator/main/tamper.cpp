@@ -152,6 +152,34 @@ int readLDRAveraged()
     );
 }
 
+static bool calibrateLDR()
+{
+    long long sum = 0;
+
+    for (int i = 0; i < CALIBRATION_SAMPLES; ++i) {
+        int reading = readLDRAveraged();
+
+        if (reading < 0) {
+            return false;
+        }
+
+        sum += reading;
+
+        vTaskDelay(pdMS_TO_TICKS(20));
+    }
+
+    ldrBaseline =
+        static_cast<int>(sum / CALIBRATION_SAMPLES);
+
+    ESP_LOGI(
+        TAG,
+        "LDR calibrated: baseline=%d",
+        ldrBaseline
+    );
+
+    return true;
+}
+
 
 void checkTamper()
 {

@@ -14,9 +14,9 @@
 // ----------------------------------------------------
 
 #define BUTTON_PIN   10
-#define LDR_PIN      4
-#define LED_RED      16
-#define LED_YELLOW   15
+#define LDR_PIN      11
+#define LED_RED      18
+#define LED_YELLOW   17
 
 // ----------------------------------------------------
 // Constants
