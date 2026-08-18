@@ -6,6 +6,8 @@ idf_component_register(
          "tamper.cpp"
          "globals.cpp"
          "rtc.cpp"
+         "oled.cpp"
+         "hardware.cpp"
 
     PRIV_REQUIRES 
          spi_flash

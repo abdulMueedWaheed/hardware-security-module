@@ -1,11 +1,14 @@
 #include "globals.h"
 
 #include "crypto_ops.h"
+#include "hardware.h"
 #include "storage.h"
 #include "tamper.h"
 #include "rtc.h"
-#include "driver/i2c_master.h"
+#include "oled.h"
+#include "hardware.h"
 
+#include "driver/i2c_master.h"
 #include "driver/gpio.h"
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -509,7 +512,7 @@ void handleCommand(const std::string& cmd)
     }
 
     else if (cmd == "DUMMY_WRITE") {
-        if(!rtcRawWriteDummyTest()) {
+        if(!rtcRawWriteDummyTest(hwI2cBus)) {
             ESP_LOGE(TAG, "Failed to write to dummy address!");
         }
     }
@@ -521,7 +524,7 @@ void handleCommand(const std::string& cmd)
     }
 
     else if (cmd == "PROBE") {
-        probeRTC();
+        probeRTC(hwI2cBus);
     }
 
     else if (cmd == "CHECK_I2C") {
@@ -757,7 +760,39 @@ extern "C" void app_main()
         );
     }
 
-    if (!initRTC()) {
+    if(!initHardware()) {
+        ESP_LOGE(TAG, "Hardware bus Initialization Failed!");
+        currentState = STATE_ERROR;
+        return;
+    }
+
+    ESP_LOGI("HW",
+         "I2C bus initialized: SDA=%d SCL=%d",
+         I2C_SDA,
+         I2C_SCL);
+
+    if (!initRTC(hwI2cBus)) {
+        ESP_LOGE(TAG, "RTC Initialization Failed!");
+        currentState = STATE_ERROR;
+        return;
+    }
+
+    ESP_LOGI(TAG, "RTC inited!");
+
+    if (initOLED(hwI2cBus)) {
+        oledClear();
+        
+        // Draw lines onto the display (Line 0 to 7)
+        oledWriteString(0, 0, "=== ESP32 HSM ===");
+        oledWriteString(2, 0, "STATUS: READY");
+        oledWriteString(4, 0, "TIME: 2026-08-18");
+        oledWriteString(5, 0, "RTC: SYNC OK");
+
+        // Push buffer to OLED screen
+        oledUpdate();
+    }
+    else {
+        ESP_LOGE(TAG, "OLED Initialization Failed!");
         currentState = STATE_ERROR;
         return;
     }

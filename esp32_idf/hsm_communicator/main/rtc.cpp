@@ -1,4 +1,6 @@
 #include "rtc.h"
+#include "hardware.h"
+
 #include <ctime>
 
 #include "driver/i2c_master.h"
@@ -8,18 +10,12 @@
 
 static const char *TAG = "RTC";
 
-static constexpr gpio_num_t RTC_SCL = GPIO_NUM_13;
-static constexpr gpio_num_t RTC_SDA = GPIO_NUM_14;
-
 static constexpr uint8_t DS3231_ADDR = 0x68;
-
-static i2c_master_bus_handle_t rtcBus = nullptr;
 static i2c_master_dev_handle_t rtcDevice = nullptr;
 
 
 // The RTC stores data in the form of binary encoded decimal
-// so we need to convert between that
-// and actual decimal values
+// so we need to convert between that and actual decimal values
 
 static uint8_t bcdToDec(uint8_t value) {
     return ((value >> 4) * 10) + (value & 0x0F);
@@ -32,77 +28,36 @@ static uint8_t decToBcd(uint8_t value) {
 }
 
 
-void resetI2CBus(gpio_num_t sda_pin, gpio_num_t scl_pin) {
-    gpio_config_t io_conf = {};
-    io_conf.mode = GPIO_MODE_INPUT_OUTPUT_OD; // Open-drain mode
-    io_conf.pull_up_en = GPIO_PULLUP_ENABLE;
-    io_conf.pin_bit_mask = (1ULL << sda_pin) | (1ULL << scl_pin);
-    gpio_config(&io_conf);
+bool initRTC(i2c_master_bus_handle_t hwI2cBus)
+{
+    i2c_device_config_t config = {};
 
-    // Drive SCL low and high 9 times to flush stuck slave bits
-    for (int i = 0; i < 9; i++) {
-        gpio_set_level(scl_pin, 0);
-        esp_rom_delay_us(10);
-        gpio_set_level(scl_pin, 1);
-        esp_rom_delay_us(10);
-    }
+    config.dev_addr_length = I2C_ADDR_BIT_LEN_7;
+    config.device_address = DS3231_ADDR;
+    config.scl_speed_hz = 100000;
 
-    // Send I2C STOP condition (SDA goes LOW to HIGH while SCL is HIGH)
-    gpio_set_level(sda_pin, 0);
-    esp_rom_delay_us(10);
-    gpio_set_level(scl_pin, 1);
-    esp_rom_delay_us(10);
-    gpio_set_level(sda_pin, 1);
-    esp_rom_delay_us(10);
-}
+    esp_err_t err = i2c_master_bus_add_device(
+        hwI2cBus,
+        &config,
+        &rtcDevice
+    );
 
-
-bool initRTC() {
-
-    //Clear any stuck slave state on the bus
-    resetI2CBus(GPIO_NUM_13, GPIO_NUM_14);
-
-    i2c_master_bus_config_t busConfig = {};
-
-    busConfig.clk_source = I2C_CLK_SRC_DEFAULT;
-    busConfig.i2c_port = I2C_NUM_0;
-    busConfig.scl_io_num = static_cast<gpio_num_t>(RTC_SCL);
-    busConfig.sda_io_num = static_cast<gpio_num_t>(RTC_SDA);
-    busConfig.glitch_ignore_cnt = 7;
-    busConfig.flags.enable_internal_pullup = false; // Using HW-084's built-in 4.7k resistors
-
-    esp_err_t err = i2c_new_master_bus(&busConfig, &rtcBus);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to initialize I2C bus: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "Failed to attach DS3231: %s",
+                 esp_err_to_name(err));
         return false;
     }
 
-    i2c_device_config_t deviceConfig = {};
-    deviceConfig.dev_addr_length = I2C_ADDR_BIT_LEN_7;
-    deviceConfig.device_address = DS3231_ADDR; // Must be 0x68
-    deviceConfig.scl_speed_hz = 100000;         // 100kHz
-    deviceConfig.scl_wait_us = 100000;
-    deviceConfig.flags = {};
+    err = i2c_master_probe(hwI2cBus, DS3231_ADDR, 1000);
 
-    err = i2c_master_bus_add_device(rtcBus, &deviceConfig, &rtcDevice);
     if (err != ESP_OK) {
-        ESP_LOGE(TAG, "Failed to add DS3231: %s", esp_err_to_name(err));
-        i2c_del_master_bus(rtcBus); // Cleanup bus on failure
-        rtcBus = nullptr;
-        return false;
-    }
-
-    err = i2c_master_probe(rtcBus, DS3231_ADDR, 1000);
-    if (err != ESP_OK) {
-        ESP_LOGE(TAG, "DS3231 not detected: %s", esp_err_to_name(err));
-        i2c_master_bus_rm_device(rtcDevice); // Cleanup device & bus
-        i2c_del_master_bus(rtcBus);
-        rtcDevice = nullptr;
-        rtcBus = nullptr;
+        ESP_LOGE(TAG, "DS3231 not detected: %s",
+                 esp_err_to_name(err));
         return false;
     }
 
     ESP_LOGI(TAG, "DS3231 detected at 0x68");
+
     return true;
 }
 
@@ -333,17 +288,17 @@ bool rtcTestWrite()
     return err == ESP_OK;
 }
 
-bool rtcTestRead()
+bool rtcTestRead(i2c_master_bus_handle_t hwI2cBus)
 {
     // Guard against uninitialized or corrupted handles
-    if (rtcBus == nullptr || rtcDevice == nullptr) {
-        ESP_LOGE(TAG, "Cannot test RTC: handles are NULL (bus: %p, dev: %p)", rtcBus, rtcDevice);
+    if (hwI2cBus == nullptr || rtcDevice == nullptr) {
+        ESP_LOGE(TAG, "Cannot test RTC: handles are NULL (bus: %p, dev: %p)", hwI2cBus, rtcDevice);
         return false;
     }
 
     // Print handle addresses to detect buffer corruption early
-    ESP_LOGI(TAG, "Probing bus at handle %p...", rtcBus);
-    esp_err_t probe = i2c_master_probe(rtcBus, DS3231_ADDR, 1000);
+    ESP_LOGI(TAG, "Probing bus at handle %p...", hwI2cBus);
+    esp_err_t probe = i2c_master_probe(hwI2cBus, DS3231_ADDR, 1000);
 
     ESP_LOGI(TAG, "Probe result: %s", esp_err_to_name(probe));
     if (probe != ESP_OK) {
@@ -390,11 +345,11 @@ uint32_t convertTimeToUnix(const RtcDateTime& time) {
     return (timestamp == static_cast<time_t>(-1)) ? 0 : static_cast<uint32_t>(timestamp);
 }
 
-void probeRTC()
+void probeRTC(i2c_master_bus_handle_t hwI2cBus)
 {
     for (int i = 0; i < 5; ++i) {
         esp_err_t err = i2c_master_probe(
-            rtcBus,
+            hwI2cBus,
             DS3231_ADDR,
             1000
         );
@@ -529,9 +484,9 @@ bool rtcRepeatedStartRead()
     return err == ESP_OK;
 }
 
-bool rtcRawWriteDummyTest()
+bool rtcRawWriteDummyTest(i2c_master_bus_handle_t hwI2cBus)
 {
-    if (rtcBus == nullptr) {
+    if (hwI2cBus == nullptr) {
         ESP_LOGE(TAG, "RTC Bus not initialized!");
         return false;
     }
@@ -544,7 +499,7 @@ bool rtcRawWriteDummyTest()
     dummyConfig.scl_wait_us = 1000;
 
     i2c_master_dev_handle_t dummyDevice = nullptr;
-    esp_err_t err = i2c_master_bus_add_device(rtcBus, &dummyConfig, &dummyDevice);
+    esp_err_t err = i2c_master_bus_add_device(hwI2cBus, &dummyConfig, &dummyDevice);
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Failed to add dummy device: %s", esp_err_to_name(err));
         return false;

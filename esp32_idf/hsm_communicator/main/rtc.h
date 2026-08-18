@@ -1,6 +1,7 @@
 #ifndef RTC_H
 #define RTC_H
 
+#include "driver/i2c_types.h"
 #include <cstdint>
 
 struct RtcDateTime {
@@ -12,7 +13,7 @@ struct RtcDateTime {
     uint8_t second;
 };
 
-bool initRTC();
+bool initRTC(i2c_master_bus_handle_t busHandle);
 
 bool rtcReadTime(RtcDateTime& time);
 bool rtcSetTime(const RtcDateTime& time);
@@ -21,19 +22,19 @@ uint32_t rtcGetUnixTime();
 bool rtcSetUnixTime(uint32_t unixTime);
 
 bool rtcIsRunning();
-bool rtcDumpRegisters();
-bool rtcTestWrite();
-bool rtcTestRead();
 uint32_t convertTimeToUnix(const RtcDateTime& time);
 
-
+// testing functions
+bool rtcDumpRegisters();
+bool rtcTestWrite();
+bool rtcTestRead(i2c_master_bus_handle_t busHandle);
 bool rtcRawRead();
 bool rtcRawWrite();
-void probeRTC();
+void probeRTC(i2c_master_bus_handle_t hwI2cBus);
 bool rtcRegisterWriteTest();
 bool rtcRepeatedStartRead();
 bool rtcExplicitRepeatedStartRead();
-bool rtcRawWriteDummyTest();
+bool rtcRawWriteDummyTest(i2c_master_bus_handle_t hwI2cBus);
 // bool rtcRawReadOneByte();
 
 #endif
