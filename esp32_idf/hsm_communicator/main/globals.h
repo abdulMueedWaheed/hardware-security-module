@@ -13,10 +13,10 @@
 // Pin assignments
 // ----------------------------------------------------
 
-#define BUTTON_PIN   10
-#define LDR_PIN      11
-#define LED_RED      18
-#define LED_YELLOW   17
+#define BUTTON_PIN   16
+#define LDR_PIN      18
+#define LED_RED      4
+#define LED_YELLOW   5
 
 // ----------------------------------------------------
 // Constants

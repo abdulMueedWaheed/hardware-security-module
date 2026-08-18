@@ -454,8 +454,8 @@ void handleCommand(const std::string& cmd)
             printf("ERR_BAD_TIME\n");
             return;
         }
-        
-        if (!rtcSetTime(static_cast<uint32_t>(timestamp))) {
+
+        if (!rtcSetUnixTime(static_cast<uint32_t>(timestamp))) {
             printf("ERR_RTC_WRITE\n"); // Changed from ERR_BAD_TIME for better debugging
             return;
         }

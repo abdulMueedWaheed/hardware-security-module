@@ -8,8 +8,8 @@
 
 static const char *TAG = "RTC";
 
-static constexpr gpio_num_t RTC_SDA = GPIO_NUM_13;
-static constexpr gpio_num_t RTC_SCL = GPIO_NUM_14;
+static constexpr gpio_num_t RTC_SCL = GPIO_NUM_13;
+static constexpr gpio_num_t RTC_SDA = GPIO_NUM_14;
 
 static constexpr uint8_t DS3231_ADDR = 0x68;
 
