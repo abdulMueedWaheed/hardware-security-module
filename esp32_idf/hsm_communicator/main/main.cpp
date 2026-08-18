@@ -3,6 +3,8 @@
 #include "crypto_ops.h"
 #include "storage.h"
 #include "tamper.h"
+#include "rtc.h"
+#include "driver/i2c_master.h"
 
 #include "driver/gpio.h"
 #include "esp_log.h"
@@ -12,7 +14,7 @@
 #include "nvs_flash.h"
 #include "psa/crypto.h"
 
-#include "driver/usb_serial_jtag.h"
+// #include "driver/usb_serial_jtag.h"
 // #include "esp_vfs_usb_serial_jtag.h"
 
 #include <cstdio>
@@ -22,6 +24,29 @@
 
 static const char *TAG = "MAIN";
 
+
+static void checkI2CLines()
+{
+    gpio_config_t config = {};
+
+    config.pin_bit_mask =
+        (1ULL << GPIO_NUM_13) |
+        (1ULL << GPIO_NUM_14);
+
+    config.mode = GPIO_MODE_INPUT;
+    config.pull_up_en = GPIO_PULLUP_ENABLE;
+    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
+    config.intr_type = GPIO_INTR_DISABLE;
+
+    ESP_ERROR_CHECK(gpio_config(&config));
+
+    ESP_LOGI(
+        TAG,
+        "SDA=%d SCL=%d",
+        gpio_get_level(GPIO_NUM_13),
+        gpio_get_level(GPIO_NUM_14)
+    );
+}
 
 // =====================================================================
 // Helpers
@@ -69,9 +94,9 @@ static const char *stateToString(HsmState state)
 // Forward declarations
 // =====================================================================
 
-void handleCommand(const std::string& cmd);
-void updateLEDs();
-void printStatus();
+// void handleCommand(const std::string& cmd);
+// void updateLEDs();
+// void printStatus();
 
 
 // =====================================================================
@@ -80,22 +105,6 @@ void printStatus();
 
 static bool initGPIO()
 {
-    gpio_config_t config = {};
-
-    config.pin_bit_mask =
-        (1ULL << BUTTON_PIN) |
-        (1ULL << LED_RED) |
-        (1ULL << LED_YELLOW);
-
-    config.mode = GPIO_MODE_INPUT_OUTPUT;
-    config.pull_up_en = GPIO_PULLUP_DISABLE;
-    config.pull_down_en = GPIO_PULLDOWN_DISABLE;
-    config.intr_type = GPIO_INTR_DISABLE;
-
-    /*
-     * Configure LEDs separately as outputs.
-     */
-
     gpio_config_t ledConfig = {};
 
     ledConfig.pin_bit_mask =
@@ -435,30 +444,88 @@ void handleCommand(const std::string& cmd)
     // SETTIME:<unix timestamp>
     // ------------------------------------------------
 
-    else if (
-        cmd.rfind("SETTIME:", 0) == 0
-    ) {
+    else if (cmd.rfind("SETTIME:", 0) == 0)
+    {
         const char *value = cmd.c_str() + 8;
-
         char *end = nullptr;
-
-        unsigned long timestamp =
-            strtoul(value, &end, 10);
+        unsigned long timestamp = strtoul(value, &end, 10);
 
         if (end == value || *end != '\0') {
             printf("ERR_BAD_TIME\n");
             return;
         }
-
-        hostTimeAtSync = static_cast<uint32_t>(
-            timestamp
-        );
-
-        millisAtSync = millis_now();
-
-        timeSynced = true;
+        
+        if (!rtcSetTime(static_cast<uint32_t>(timestamp))) {
+            printf("ERR_RTC_WRITE\n"); // Changed from ERR_BAD_TIME for better debugging
+            return;
+        }
 
         printf("OK_TIME_SYNCED\n");
+    }
+
+    else if (cmd == "GETTIME") {
+        RtcDateTime time;
+
+        if (!rtcReadTime(time)) {
+            printf("ERR_RTC_READ\n");
+            return;
+        }
+
+        printf(
+            "TIME:%04u-%02u-%02u %02u:%02u:%02u\n",
+            time.year, time.month, time.day,
+            time.hour, time.minute, time.second
+        );
+
+        // Convert the already-read time struct directly
+        printf("UNIX:%lu\n", static_cast<unsigned long>(convertTimeToUnix(time)));
+    }
+
+    else if (cmd == "RTCREGS") {
+        rtcDumpRegisters();
+    }
+
+    else if (cmd == "RAWREAD") {
+        if(!rtcRawRead()) {
+            ESP_LOGE(TAG, "Failed to read!");
+        }
+    }
+
+    // else if (cmd == "RSR_READ") {
+    //     if(!rtcExplicitRepeatedStartRead())
+    //         ESP_LOGE(TAG, "FAILED repeated read write");
+    // }
+
+    // else if (cmd == "RAWREADONE") {
+    //     if(!rtcRawReadOneByte()) {
+    //         ESP_LOGE(TAG, "Failed to read one byte!");
+    //     }
+    // }
+
+    else if (cmd == "RAWWRITE") {
+        if(!rtcRawWrite()) {
+            ESP_LOGE(TAG, "Failed to write!");
+        }
+    }
+
+    else if (cmd == "DUMMY_WRITE") {
+        if(!rtcRawWriteDummyTest()) {
+            ESP_LOGE(TAG, "Failed to write to dummy address!");
+        }
+    }
+
+    else if (cmd == "RS_READ") {
+        if(!rtcRepeatedStartRead()) {
+            ESP_LOGE(TAG, "Failed to write!");
+        }
+    }
+
+    else if (cmd == "PROBE") {
+        probeRTC();
+    }
+
+    else if (cmd == "CHECK_I2C") {
+        checkI2CLines();
     }
 
     // ------------------------------------------------
@@ -690,10 +757,15 @@ extern "C" void app_main()
         );
     }
 
+    if (!initRTC()) {
+        currentState = STATE_ERROR;
+        return;
+    }
+
     xTaskCreate(
         commandTask,
         "command_task",
-        4096,
+        8192,
         nullptr,
         4,
         nullptr
@@ -705,29 +777,30 @@ extern "C" void app_main()
 
     while (true) {
 
-        // checkTamper();
+        checkTamper();
 
-        // updateLEDs();
+        updateLEDs();
+        // checkI2CLines();
 
-        // /*
-        //  * Give IDLE0 and other FreeRTOS tasks CPU time.
-        //  */
+        /*
+         * Give IDLE0 and other FreeRTOS tasks CPU time.
+         */
 
-        // vTaskDelay(
-        //     pdMS_TO_TICKS(10)
-        // );
+        vTaskDelay(
+            pdMS_TO_TICKS(10)
+        );
 
-        for (int i = 0; i < 50; ++i) {
-            int reading = readLDRAveraged();
+    //     for (int i = 0; i < 50; ++i) {
+    //         int reading = readLDRAveraged();
 
-            ESP_LOGI(
-                TAG,
-                "STARTUP_LDR[%d] = %d",
-                i,
-                reading
-            );
+    //         ESP_LOGI(
+    //             TAG,
+    //             "STARTUP_LDR[%d] = %d",
+    //             i,
+    //             reading
+    //         );
 
-            vTaskDelay(pdMS_TO_TICKS(100));
-        }
+    //         vTaskDelay(pdMS_TO_TICKS(100));
+    //     }
     }
 }

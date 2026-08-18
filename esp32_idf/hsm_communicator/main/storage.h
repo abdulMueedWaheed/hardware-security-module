@@ -5,7 +5,7 @@
 
 #include "globals.h"
 
-void zeroizeKeys();
+bool zeroizeKeys();
 
 uint32_t getCurrentUnixTime();
 

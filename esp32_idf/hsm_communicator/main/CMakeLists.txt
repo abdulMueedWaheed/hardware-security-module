@@ -5,6 +5,7 @@ idf_component_register(
          "storage.cpp"
          "tamper.cpp"
          "globals.cpp"
+         "rtc.cpp"
 
     PRIV_REQUIRES 
          spi_flash
@@ -15,6 +16,6 @@ idf_component_register(
          esp_adc
          esp_driver_gpio
          esp_timer
-         esp_driver_usb_serial_jtag
+         esp_driver_i2c
      
     INCLUDE_DIRS "")

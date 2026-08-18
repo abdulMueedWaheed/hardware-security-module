@@ -64,10 +64,6 @@ extern uint32_t lastTamperCheck;
 extern uint32_t lastBlink;
 extern bool blinkOn;
 
-extern uint32_t hostTimeAtSync;
-extern uint32_t millisAtSync;
-extern bool timeSynced;
-
 extern uint32_t logCounter;
 
 // ----------------------------------------------------

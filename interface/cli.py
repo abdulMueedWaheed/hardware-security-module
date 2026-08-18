@@ -34,7 +34,7 @@ def main():
         print("Self-test failed on device.\n")
 
     print(hsm.sync_time())
-    print("Commands: PING | STATUS | LDRVAL | GENKEY | GETPUBKEY | SIGN:<text> | ZEROIZE | GETLOG | EXIT\n")
+    print("Commands: PING | STATUS | LDRVAL | GENKEY | GETPUBKEY | SIGN:<text> | ZEROIZE | GETTIME | GETLOG | EXIT\n")
 
     running = True
     while running:

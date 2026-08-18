@@ -19,8 +19,4 @@ uint32_t lastTamperCheck = 0;
 uint32_t lastBlink = 0;
 bool blinkOn = false;
 
-uint32_t hostTimeAtSync = 0;
-uint32_t millisAtSync = 0;
-bool timeSynced = false;
-
 uint32_t logCounter = 0;

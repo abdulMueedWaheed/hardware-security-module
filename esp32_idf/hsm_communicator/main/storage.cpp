@@ -1,5 +1,5 @@
 
-
+#include "rtc.h"
 #include "storage.h"
 
 #include "esp_log.h"
@@ -16,26 +16,8 @@ static const char *TAG = "STORAGE";
 // Timing
 // =====================================================================
 
-uint32_t getCurrentUnixTime()
-{
-    if (!timeSynced) {
-        return 0;
-    }
-
-    /*
-     * esp_timer_get_time() returns microseconds since boot.
-     * Convert the elapsed time to seconds.
-     */
-
-    uint64_t nowUs = esp_timer_get_time();
-    uint64_t syncUs =
-        static_cast<uint64_t>(millisAtSync) * 1000ULL;
-
-    uint64_t elapsedSec =
-        (nowUs - syncUs) / 1000000ULL;
-
-    return hostTimeAtSync +
-           static_cast<uint32_t>(elapsedSec);
+uint32_t getCurrentUnixTime() {
+    return rtcGetUnixTime();
 }
 
 
@@ -43,8 +25,7 @@ uint32_t getCurrentUnixTime()
 // Event logging
 // =====================================================================
 
-void logEvent(const char *eventType)
-{
+void logEvent(const char *eventType) {
     logCounter++;
 
     char entry[LOG_ENTRY_MAXLEN];
@@ -199,18 +180,24 @@ void printLog()
 // Key management
 // =====================================================================
 
-void zeroizeKeys()
+bool zeroizeKeys()
 {
     /*
      * Destroying a persistent PSA key removes it from persistent
      * storage as well as invalidating its key identifier.
      */
 
+    if (!keyExists) {
+        ESP_LOGI(TAG, "No persistent key to zeroize");
+        return true;
+    }
+
     psa_status_t status = psa_destroy_key(
         hsm_key_id
     );
 
-    if (status == PSA_SUCCESS) {
+    if (status == PSA_SUCCESS ||
+        status == PSA_ERROR_DOES_NOT_EXIST) {
         keyExists = false;
 
         ESP_LOGI(
@@ -219,14 +206,7 @@ void zeroizeKeys()
         );
 
         logEvent("KEY_ZEROIZED");
-    }
-    else if (status == PSA_ERROR_DOES_NOT_EXIST) {
-        keyExists = false;
-
-        ESP_LOGI(
-            TAG,
-            "No key to zeroize"
-        );
+        return true;
     }
     else {
         ESP_LOGE(
@@ -236,6 +216,7 @@ void zeroizeKeys()
         );
 
         logEvent("ERR_KEY_ZEROIZE_FAILED");
+        return false;
     }
 }
 

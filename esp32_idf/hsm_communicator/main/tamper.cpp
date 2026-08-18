@@ -223,15 +223,25 @@ void checkTamper()
 
     if (current_value > TAMPER_THRESHOLD) {
 
-        zeroizeKeys();
+        if (zeroizeKeys()) {
+            currentState = STATE_TAMPER_LOCKED;
+    
+            ESP_LOGE(
+                TAG,
+                "TAMPER_DETECTED_KEYS_ZEROIZED, current_value: %d",
+                current_value
+            );
+        }
+        
+        else {
+            currentState = STATE_ERROR;
+            ESP_LOGE(
+                TAG,
+                "KEYS FAILED TO ZEROIZE"
+            );
 
-        currentState = STATE_TAMPER_LOCKED;
+        }
 
-        ESP_LOGE(
-            TAG,
-            "TAMPER_DETECTED_KEYS_ZEROIZED, current_value: %d",
-            current_value
-        );
     }
 }
 
