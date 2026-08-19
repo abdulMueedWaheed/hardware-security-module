@@ -19,6 +19,14 @@ static const char * TAG = "HSM";
 bool initHSM() {
     currentState = STATE_INIT;
 
+    if (!initStorage()) {
+        ESP_LOGE(
+            TAG, 
+            "Storage(NVS) Subsystem Failed to initialize!",
+        );
+        return false;
+    }
+
     if(!initCrypto()) {
         ESP_LOGE(
             TAG, 
@@ -41,14 +49,6 @@ bool initHSM() {
         ESP_LOGE(
             TAG, 
             "Tamper Subsystem Failed to initialize!",
-        );
-        return false;
-    }
-
-    if (!initStorage()) {
-        ESP_LOGE(
-            TAG, 
-            "Storage(NVS) Subsystem Failed to initialize!",
         );
         return false;
     }
