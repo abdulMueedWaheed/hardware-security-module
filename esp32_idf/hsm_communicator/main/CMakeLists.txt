@@ -1,13 +1,21 @@
 idf_component_register(
     SRCS 
          "main.cpp"
-         "crypto_ops.cpp"
-         "storage.cpp"
-         "tamper.cpp"
-         "globals.cpp"
-         "rtc.cpp"
-         "oled.cpp"
-         "hardware.cpp"
+         
+         "app/interface.cpp"
+         "app/state.cpp"
+         
+         "driver/led.cpp"
+         "driver/oled.cpp"
+         "driver/rtc.cpp"
+         
+         "hardware/gpio.cpp"
+         "hardware/i2c_driver.cpp"
+         
+         "security/hsm.cpp"
+         "security/crypto_ops.cpp"
+         "security/storage.cpp"
+         "security/tamper.cpp"
 
     PRIV_REQUIRES 
          spi_flash

@@ -1,5 +1,7 @@
 #include "crypto_ops.h"
 
+#include "../app/state.h"
+
 #include "storage.h"
 #include "tamper.h"
 
@@ -420,12 +422,7 @@ void getPubKey()
 // HEX → BYTES
 // =====================================================================
 
-int hexStringToBytes(
-    const std::string& hex,
-    unsigned char *out,
-    size_t maxLen
-)
-{
+int hexStringToBytes(const std::string& hex, unsigned char *out, size_t maxLen) {
     if (hex.length() % 2 != 0) {
         return -1;
     }

@@ -1,6 +1,7 @@
 
-#include "rtc.h"
+#include "../driver/rtc.h"
 #include "storage.h"
+#include "crypto_ops.h"
 
 #include "esp_log.h"
 #include "esp_timer.h"
@@ -10,7 +11,8 @@
 #include <cstdint>
 
 static const char *TAG = "STORAGE";
-
+uint32_t logCounter = 0;
+nvs_handle_t prefs = 0;
 
 // =====================================================================
 // Timing

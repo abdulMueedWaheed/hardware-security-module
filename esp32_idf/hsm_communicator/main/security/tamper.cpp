@@ -1,5 +1,10 @@
 #include "tamper.h"
 
+#include "../app/state.h"
+#include "../driver/led.h"
+#include "../hardware/gpio.h"
+#include "../hardware/gpio.h"
+
 #include "storage.h"
 
 #include "esp_log.h"
@@ -18,9 +23,12 @@ static adc_unit_t ldr_adc_unit;
 static adc_channel_t ldr_adc_channel;
 
 
-// =====================================================================
-// TAMPER HARDWARE INITIALIZATION
-// =====================================================================
+int ldrBaseline = 0;
+int TAMPER_THRESHOLD = 1500;
+const int LDR_SAMPLES = 5;
+uint32_t lastTamperCheck = 0;
+const uint32_t TAMPER_CHECK_INTERVAL_MS = 250;
+const uint32_t AUTH_TIMEOUT_MS = 8000;
 
 bool initTamper()
 {

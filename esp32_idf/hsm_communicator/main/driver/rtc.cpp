@@ -1,5 +1,4 @@
 #include "rtc.h"
-#include "hardware.h"
 
 #include <ctime>
 

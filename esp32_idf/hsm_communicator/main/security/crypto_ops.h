@@ -1,8 +1,11 @@
 #ifndef CRYPTO_OPPS_H
 #define CRYPTO_OPPS_H
 
-#include "globals.h"
+#include "psa/crypto_types.h"
 #include <string>
+
+extern bool keyExists;
+extern psa_key_id_t hsm_key_id;
 
 bool selfTestSHA256();
 bool selfTestECDSA();
