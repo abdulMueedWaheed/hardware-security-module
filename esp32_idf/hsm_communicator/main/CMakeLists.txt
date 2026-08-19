@@ -12,6 +12,7 @@ idf_component_register(
          "hardware/gpio.cpp"
          "hardware/i2c_driver.cpp"
          
+         "security/authorization.cpp"
          "security/hsm.cpp"
          "security/crypto_ops.cpp"
          "security/storage.cpp"

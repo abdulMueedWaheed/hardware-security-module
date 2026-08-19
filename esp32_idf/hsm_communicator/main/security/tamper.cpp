@@ -5,6 +5,7 @@
 #include "../hardware/gpio.h"
 #include "../hardware/gpio.h"
 
+#include "crypto_ops.h"
 #include "storage.h"
 
 #include "esp_log.h"
@@ -30,8 +31,7 @@ uint32_t lastTamperCheck = 0;
 const uint32_t TAMPER_CHECK_INTERVAL_MS = 250;
 const uint32_t AUTH_TIMEOUT_MS = 8000;
 
-bool initTamper()
-{
+bool initTamper() {
     /*
      * GPIO 4 on the ESP32-S3 is ADC1_CH3.
      *
@@ -231,7 +231,7 @@ void checkTamper()
 
     if (current_value > TAMPER_THRESHOLD) {
 
-        if (zeroizeKeys()) {
+        if (zeroize()) {
             currentState = STATE_TAMPER_LOCKED;
     
             ESP_LOGE(
@@ -253,91 +253,3 @@ void checkTamper()
     }
 }
 
-
-// =====================================================================
-// AUTHORIZATION GATE
-// =====================================================================
-
-// Blocks until the button is pressed (fresh press) or times out.
-// Returns true if authorized, false on timeout/tamper.
-
-bool requireAuthorization()
-{
-    currentState = STATE_AWAITING_AUTH;
-
-    ESP_LOGI(
-        TAG,
-        "AWAITING_AUTH_PRESS_BUTTON"
-    );
-
-    uint32_t startMs = static_cast<uint32_t>(
-        esp_timer_get_time() / 1000ULL
-    );
-
-    /*
-     * If the button is already held down, wait for release first.
-     * This prevents a stale press from automatically authorizing
-     * the next command.
-     */
-
-    while (gpio_get_level(
-               static_cast<gpio_num_t>(BUTTON_PIN)
-           ) == 1 &&
-           static_cast<uint32_t>(
-               esp_timer_get_time() / 1000ULL
-           ) - startMs < AUTH_TIMEOUT_MS) {
-
-        checkTamper();
-
-        if (currentState == STATE_TAMPER_LOCKED) {
-            return false;
-        }
-
-        vTaskDelay(
-            pdMS_TO_TICKS(20)
-        );
-    }
-
-    startMs = static_cast<uint32_t>(
-        esp_timer_get_time() / 1000ULL
-    );
-
-    while (
-        static_cast<uint32_t>(
-            esp_timer_get_time() / 1000ULL
-        ) - startMs < AUTH_TIMEOUT_MS
-    ) {
-
-        if (gpio_get_level(
-                static_cast<gpio_num_t>(BUTTON_PIN)
-            ) == 1) {
-
-            vTaskDelay(
-                pdMS_TO_TICKS(30)
-            );
-
-            if (gpio_get_level(
-                    static_cast<gpio_num_t>(BUTTON_PIN)
-                ) == 1) {
-
-                return true;
-            }
-        }
-
-        /*
-         * Stay responsive to tamper while waiting for authorization.
-         */
-
-        checkTamper();
-
-        if (currentState == STATE_TAMPER_LOCKED) {
-            return false;
-        }
-
-        vTaskDelay(
-            pdMS_TO_TICKS(10)
-        );
-    }
-
-    return false;
-}

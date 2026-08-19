@@ -4,23 +4,15 @@
 #include "psa/crypto_types.h"
 #include <string>
 
-extern bool keyExists;
-extern psa_key_id_t hsm_key_id;
+bool runSelfTests();
 
-bool selfTestSHA256();
-bool selfTestECDSA();
+bool generateKey();
+bool hasKey();
+bool zeroize();
+bool getPubKey(std::string& publicKeyHex);
 
-void runSelfTests();
+bool signData(const std::string& hexData, std::string& signatureHex);
 
-void genKey();
-void getPubKey();
-
-int hexStringToBytes(
-    const std::string& hex,
-    unsigned char *out,
-    size_t maxLen
-);
-
-void signData(const std::string& hexData);
+bool initCrypto();
 
 #endif

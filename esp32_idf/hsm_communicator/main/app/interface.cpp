@@ -12,9 +12,11 @@
 
 #include "../hardware/i2c_driver.h"
 
+#include "../security/authorization.h"
 #include "../security/storage.h"
 #include "../security/tamper.h"
 #include "../security/crypto_ops.h"
+
 
 static const char * TAG = "INTERFACE";
 
@@ -84,7 +86,7 @@ void handleCommand(const std::string& cmd) {
 
         currentState = STATE_PROCESSING;
 
-        genKey();
+        generateKey();
 
         if (currentState != STATE_TAMPER_LOCKED) {
             currentState = STATE_IDLE;
@@ -96,17 +98,22 @@ void handleCommand(const std::string& cmd) {
     // ------------------------------------------------
 
     else if (cmd == "GETPUBKEY") {
-        getPubKey();
+        std::string publicKey;
+
+        if (!getPubKey(publicKey)) {
+            printf("ERR_NO_KEY\n");
+            return;
+        }
+
+        printf("PUBKEY:%s\n", publicKey.c_str());
     }
 
     // ------------------------------------------------
     // SIGN:<hexdata>
     // ------------------------------------------------
 
-    else if (
-        cmd.rfind("SIGN:", 0) == 0
-    ) {
-        if (!keyExists) {
+    else if (cmd.rfind("SIGN:", 0) == 0) {
+        if (!hasKey()) {
             printf("ERR_NO_KEY\n");
             return;
         }
@@ -123,9 +130,19 @@ void handleCommand(const std::string& cmd) {
 
         currentState = STATE_PROCESSING;
 
-        signData(
-            cmd.substr(5)
-        );
+        std::string signature;
+
+        if (!signData(cmd.substr(5), signature)) {
+            printf("ERR_SIGN_FAILED\n");
+
+            if (currentState != STATE_TAMPER_LOCKED) {
+                currentState = STATE_IDLE;
+            }
+
+            return;
+        }
+
+        printf("SIGNATURE:%s\n", signature.c_str());
 
         if (currentState != STATE_TAMPER_LOCKED) {
             currentState = STATE_IDLE;
@@ -150,7 +167,7 @@ void handleCommand(const std::string& cmd) {
 
         currentState = STATE_PROCESSING;
 
-        zeroizeKeys();
+        zeroize();
 
         if (currentState != STATE_TAMPER_LOCKED) {
             printf("OK_ZEROIZED\n");
@@ -280,7 +297,7 @@ void printStatus()
 
     printf(
         "KEY_PRESENT:%s\n",
-        keyExists ? "YES" : "NO"
+        hasKey() ? "YES" : "NO"
     );
 }
 

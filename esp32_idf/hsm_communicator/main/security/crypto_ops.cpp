@@ -1,9 +1,6 @@
 #include "crypto_ops.h"
-
-#include "../app/state.h"
-
 #include "storage.h"
-#include "tamper.h"
+#include "../app/state.h"
 
 #include "esp_log.h"
 #include "psa/crypto.h"
@@ -17,9 +14,8 @@ static const char *TAG = "CRYPTO";
 
 static constexpr psa_key_id_t HSM_KEY_ID = PSA_KEY_ID_USER_MIN;
 
-psa_key_id_t hsm_key_id = HSM_KEY_ID;
-bool keyExists = false;
-
+static bool keyExists = false;
+static psa_key_id_t hsm_key_id = HSM_KEY_ID;
 
 // =====================================================================
 // Helpers
@@ -36,11 +32,8 @@ static void logPsaError(const char *operation, psa_status_t status)
 }
 
 
-static std::string bytesToHex(
-    const unsigned char *data,
-    size_t len
-)
-{
+static std::string bytesToHex(const unsigned char *data, size_t len) {
+
     static constexpr char hexChars[] = "0123456789abcdef";
 
     std::string result;
@@ -55,12 +48,49 @@ static std::string bytesToHex(
 }
 
 
+static int hexStringToBytes(const std::string& hex, unsigned char *out, size_t maxLen) {
+    if (hex.length() % 2 != 0) {
+        return -1;
+    }
+
+    size_t len = hex.length() / 2;
+
+    if (len > maxLen) {
+        return -1;
+    }
+
+    for (size_t i = 0; i < len; ++i) {
+        char byteStr[3] = {
+            hex[i * 2],
+            hex[i * 2 + 1],
+            '\0'
+        };
+
+        char *end = nullptr;
+
+        long value = strtol(
+            byteStr,
+            &end,
+            16
+        );
+
+        if (end == byteStr || *end != '\0' || value < 0 || value > 255) {
+            return -1;
+        }
+
+        out[i] = static_cast<unsigned char>(value);
+    }
+
+    return static_cast<int>(len);
+}
+
+
 // =====================================================================
 // SELF-TESTS
 // =====================================================================
 
-bool selfTestSHA256()
-{
+static bool selfTestSHA256() {
+
     const char *msg = "abc";
 
     unsigned char hash[32];
@@ -96,13 +126,8 @@ bool selfTestSHA256()
 }
 
 
-bool selfTestECDSA()
-{
-    /*
-     * Generate a temporary P-256 key, sign a SHA-256 digest,
-     * verify the signature, then destroy the temporary key.
-     */
-
+static bool selfTestECDSA() {
+    
     psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
 
     psa_set_key_type(
@@ -122,11 +147,6 @@ bool selfTestECDSA()
         &attributes,
         PSA_ALG_ECDSA(PSA_ALG_SHA_256)
     );
-
-    /*
-     * Leave the lifetime as volatile.
-     * This key exists only for the self-test.
-     */
 
     psa_key_id_t testKey = PSA_KEY_ID_NULL;
 
@@ -162,14 +182,6 @@ bool selfTestECDSA()
         return false;
     }
 
-    /*
-     * P-256 ECDSA signatures are 64 bytes in PSA format:
-     *
-     *     r || s
-     *
-     * rather than the DER-encoded representation used by some
-     * older Mbed TLS APIs.
-     */
 
     unsigned char signature[PSA_SIGNATURE_MAX_SIZE];
     size_t signatureLen = 0;
@@ -210,8 +222,7 @@ bool selfTestECDSA()
 }
 
 
-void runSelfTests()
-{
+bool runSelfTests() {
     ESP_LOGI(TAG, "SELFTEST_RUNNING");
 
     bool shaOk = selfTestSHA256();
@@ -220,6 +231,7 @@ void runSelfTests()
     if (shaOk && ecdsaOk) {
         ESP_LOGI(TAG, "SELFTEST_PASS");
         currentState = STATE_IDLE;
+        return true;
     }
     else {
         if (!shaOk) {
@@ -233,6 +245,7 @@ void runSelfTests()
         ESP_LOGE(TAG, "SELFTEST_FAIL");
 
         currentState = STATE_ERROR;
+        return false;
     }
 }
 
@@ -241,15 +254,8 @@ void runSelfTests()
 // KEY MANAGEMENT
 // =====================================================================
 
-void genKey()
+bool generateKey()
 {
-    /*
-     * We use a persistent PSA key.
-     *
-     * The private key is therefore managed by PSA rather than being
-     * manually copied into a raw 32-byte buffer by our application.
-     */
-
     psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
 
     psa_set_key_usage_flags(
@@ -263,20 +269,12 @@ void genKey()
         PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1)
     );
 
-    psa_set_key_bits(
-        &attributes,
-        256
-    );
+    psa_set_key_bits(&attributes, 256);
 
     psa_set_key_algorithm(
         &attributes,
         PSA_ALG_ECDSA(PSA_ALG_SHA_256)
     );
-
-    /*
-     * The key is persistent because psa_set_key_id() sets a persistent
-     * lifetime.
-     */
 
     psa_status_t status = psa_generate_key(
         &attributes,
@@ -287,22 +285,19 @@ void genKey()
 
     if (status != PSA_SUCCESS) {
         logPsaError("KEYGEN", status);
-        logEvent("ERR_KEYGEN_FAILED");
-        return;
+        hsm_key_id = HSM_KEY_ID;
+        keyExists = false;
+        return false;
     }
 
-    /*
-     * Pairwise consistency test.
-     */
-
-    const char *testMsg = "pairwise_consistency_check";
+    const char* testMsg = "pairwise_consistency_check";
 
     unsigned char testHash[32];
     size_t testHashLen = 0;
 
     status = psa_hash_compute(
         PSA_ALG_SHA_256,
-        reinterpret_cast<const uint8_t *>(testMsg),
+        reinterpret_cast<const uint8_t*>(testMsg),
         strlen(testMsg),
         testHash,
         sizeof(testHash),
@@ -313,8 +308,8 @@ void genKey()
         logPsaError("PAIRWISE_HASH", status);
         psa_destroy_key(hsm_key_id);
         hsm_key_id = HSM_KEY_ID;
-        logEvent("ERR_PAIRWISE_CONSISTENCY_FAILED");
-        return;
+        keyExists = false;
+        return false;
     }
 
     unsigned char testSig[PSA_SIGNATURE_MAX_SIZE];
@@ -342,25 +337,18 @@ void genKey()
     }
 
     if (status != PSA_SUCCESS) {
-        logPsaError(
-            "PAIRWISE_CONSISTENCY",
-            status
-        );
-
+        logPsaError("PAIRWISE_CONSISTENCY", status);
         psa_destroy_key(hsm_key_id);
-
         hsm_key_id = HSM_KEY_ID;
-
         keyExists = false;
-
-        logEvent("ERR_PAIRWISE_CONSISTENCY_FAILED");
-        return;
+        return false;
     }
 
     keyExists = true;
 
     ESP_LOGI(TAG, "OK_KEY_GENERATED");
-    logEvent("OK_KEY_GENERATED");
+
+    return true;
 }
 
 
@@ -368,29 +356,43 @@ void genKey()
 // PUBLIC KEY
 // =====================================================================
 
-void getPubKey()
+bool hasKey() {
+    return keyExists;
+}
+
+
+bool zeroize()
 {
     if (!keyExists) {
-        ESP_LOGE(TAG, "ERR_NO_KEY");
-        logEvent("ERR_NO_KEY");
-        return;
+        return true;
     }
 
-    /*
-     * Export only the public key.
-     *
-     * For a P-256 ECC public key PSA uses the uncompressed X9.63
-     * representation:
-     *
-     *     0x04 || X || Y
-     *
-     * = 65 bytes total.
-     */
+    psa_status_t status = psa_destroy_key(hsm_key_id);
+
+    if (status != PSA_SUCCESS) {
+        logPsaError("ZEROIZE", status);
+        return false;
+    }
+
+    hsm_key_id = HSM_KEY_ID;
+    keyExists = false;
+
+    return true;
+}
+
+bool getPubKey(std::string& publicKeyHex)
+{
+    publicKeyHex.clear();
+
+    if (!keyExists) {
+        ESP_LOGE(TAG, "ERR_NO_KEY");
+        return false;
+    }
 
     unsigned char pubKey[65];
     size_t pubKeyLen = 0;
 
-    psa_status_t status = psa_export_public_key(
+    const psa_status_t status = psa_export_public_key(
         hsm_key_id,
         pubKey,
         sizeof(pubKey),
@@ -399,63 +401,11 @@ void getPubKey()
 
     if (status != PSA_SUCCESS) {
         logPsaError("PUBLIC_KEY_EXPORT", status);
-        logEvent("ERR_NO_KEY");
-        return;
+        return false;
     }
 
-    std::string hexStr = bytesToHex(
-        pubKey,
-        pubKeyLen
-    );
-
-    ESP_LOGI(
-        TAG,
-        "%s",
-        hexStr.c_str()
-    );
-
-    logEvent("PUB_KEY_RETURNED");
-}
-
-
-// =====================================================================
-// HEX → BYTES
-// =====================================================================
-
-int hexStringToBytes(const std::string& hex, unsigned char *out, size_t maxLen) {
-    if (hex.length() % 2 != 0) {
-        return -1;
-    }
-
-    size_t len = hex.length() / 2;
-
-    if (len > maxLen) {
-        return -1;
-    }
-
-    for (size_t i = 0; i < len; ++i) {
-        char byteStr[3] = {
-            hex[i * 2],
-            hex[i * 2 + 1],
-            '\0'
-        };
-
-        char *end = nullptr;
-
-        long value = strtol(
-            byteStr,
-            &end,
-            16
-        );
-
-        if (end == byteStr || *end != '\0' || value < 0 || value > 255) {
-            return -1;
-        }
-
-        out[i] = static_cast<unsigned char>(value);
-    }
-
-    return static_cast<int>(len);
+    publicKeyHex = bytesToHex(pubKey, pubKeyLen);
+    return true;
 }
 
 
@@ -463,11 +413,13 @@ int hexStringToBytes(const std::string& hex, unsigned char *out, size_t maxLen) 
 // SIGN DATA
 // =====================================================================
 
-void signData(const std::string& hexData)
-{
+bool signData(const std::string& hexData,std::string& signatureHex) {
+
+    signatureHex.clear();
+
     unsigned char data[256];
 
-    int dataLen = hexStringToBytes(
+    const int dataLen = hexStringToBytes(
         hexData,
         data,
         sizeof(data)
@@ -475,13 +427,12 @@ void signData(const std::string& hexData)
 
     if (dataLen < 0) {
         ESP_LOGE(TAG, "ERR_BAD_INPUT");
-        return;
+        return false;
     }
 
     if (!keyExists) {
         ESP_LOGE(TAG, "ERR_NO_KEY");
-        logEvent("ERR_NO_KEY");
-        return;
+        return false;
     }
 
     unsigned char hash[32];
@@ -490,7 +441,7 @@ void signData(const std::string& hexData)
     psa_status_t status = psa_hash_compute(
         PSA_ALG_SHA_256,
         data,
-        dataLen,
+        static_cast<size_t>(dataLen),
         hash,
         sizeof(hash),
         &hashLen
@@ -498,8 +449,7 @@ void signData(const std::string& hexData)
 
     if (status != PSA_SUCCESS) {
         logPsaError("HASH", status);
-        logEvent("ERR_SIGN_FAILED");
-        return;
+        return false;
     }
 
     unsigned char signature[PSA_SIGNATURE_MAX_SIZE];
@@ -517,20 +467,49 @@ void signData(const std::string& hexData)
 
     if (status != PSA_SUCCESS) {
         logPsaError("SIGN", status);
-        logEvent("ERR_SIGN_FAILED");
-        return;
+        return false;
     }
 
-    std::string hexSig = bytesToHex(
-        signature,
-        signatureLen
-    );
-
-    ESP_LOGI(
-        TAG,
-        "%s",
-        hexSig.c_str()
-    );
-
-    logEvent("KEY_SIGNED_SUCCESS");
+    signatureHex = bytesToHex(signature, signatureLen);
+    return true;
 }
+
+bool initCrypto() {
+    
+    psa_status_t status = psa_crypto_init();
+
+    if (status != PSA_SUCCESS) {
+        ESP_LOGE(
+            TAG,
+            "PSA initialization failed: %ld",
+            static_cast<long>(status)
+        );
+        return false;
+    }
+
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+
+    psa_status_t key_attribute_status = psa_get_key_attributes(
+        HSM_KEY_ID,
+        &attributes
+    );
+
+    psa_reset_key_attributes(&attributes);
+
+    if (key_attribute_status == PSA_SUCCESS) {
+        keyExists = true;
+        return true;
+    }
+
+    if (key_attribute_status == PSA_ERROR_DOES_NOT_EXIST ||
+        key_attribute_status == PSA_ERROR_INVALID_HANDLE) {
+        keyExists = false;
+        return true;
+    }
+
+    logPsaError("KEYSTORE_INIT", key_attribute_status);
+    keyExists = false;
+    return false;
+}
+
+
