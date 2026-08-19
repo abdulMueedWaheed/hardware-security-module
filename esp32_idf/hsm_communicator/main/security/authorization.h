@@ -6,5 +6,6 @@
 extern const uint32_t AUTH_TIMEOUT_MS;
 
 bool requireAuthorization();
+bool isAuthorized();
 
 #endif

@@ -29,6 +29,9 @@ bool initGPIO() {
         return false;
     }
 
+    gpio_set_level(static_cast<gpio_num_t>(LED_RED), 0);
+    gpio_set_level(static_cast<gpio_num_t>(LED_YELLOW), 0);
+    
     /*
      * Button is an input with external pulldown according to
      * your original wiring.

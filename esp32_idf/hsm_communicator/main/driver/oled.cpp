@@ -1,5 +1,14 @@
 #include "oled.h"
 
+#include <iostream>
+#include <format>
+#include <sstream>
+
+#include "../app/state.h"
+#include "../security/authorization.h"
+#include "../security/tamper.h"
+#include "../security/crypto_ops.h"
+
 static const char *TAG = "OLED";
 
 static i2c_master_dev_handle_t oled_dev = nullptr;
@@ -95,4 +104,35 @@ bool initOLED(i2c_master_bus_handle_t bus_handle) {
 
     ESP_LOGI(TAG, "SSD1306 OLED initialized successfully at 0x3C");
     return true;
+}
+
+void oledDisplayStatus() {
+
+    oledWriteString(0, 0, "=== ESP32 HSM ===");
+
+    std::stringstream ss;
+    ss << "STATE: " << stateToString(currentState);
+    oledWriteString(2, 0, ss.str().c_str());
+
+    oledWriteString(
+        3,
+        0,
+        isAuthorized() ? "AUTH: YES" : "AUTH: NO"
+    );
+
+    oledWriteString(
+        5,
+        0,
+        hasKey() ? "KEY: PRESENT" : "KEY: NONE"
+    );
+
+    char ldrText[20];
+    snprintf(
+        ldrText,
+        sizeof(ldrText),
+        "LDR: %d",
+        readLDRAveraged()
+    );
+
+    oledWriteString(7, 0, ldrText);
 }

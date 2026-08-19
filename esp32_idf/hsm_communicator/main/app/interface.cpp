@@ -17,15 +17,11 @@
 #include "../security/tamper.h"
 #include "../security/crypto_ops.h"
 
+
 void handleCommand(const std::string& cmd) {
     if (cmd.empty()) {
         return;
     }
-
-    /*
-     * Once tamper has locked the module, only STATUS and GETLOG are
-     * useful for inspection. Cryptographic commands are rejected.
-     */
 
     if (currentState == STATE_TAMPER_LOCKED) {
 
@@ -82,7 +78,11 @@ void handleCommand(const std::string& cmd) {
 
         currentState = STATE_PROCESSING;
 
-        generateKey();
+        if (generateKey()) {
+            logEvent("OK_KEY_GENERATED");
+        } else {
+            logEvent("ERR_KEY_GENERATION");
+        }
 
         if (currentState != STATE_TAMPER_LOCKED) {
             currentState = STATE_IDLE;
@@ -102,6 +102,8 @@ void handleCommand(const std::string& cmd) {
         }
 
         printf("PUBKEY:%s\n", publicKey.c_str());
+
+        logEvent("PUB_KEY_RETURNED");
     }
 
     // ------------------------------------------------
@@ -109,6 +111,7 @@ void handleCommand(const std::string& cmd) {
     // ------------------------------------------------
 
     else if (cmd.rfind("SIGN:", 0) == 0) {
+
         if (!hasKey()) {
             printf("ERR_NO_KEY\n");
             return;
@@ -131,6 +134,8 @@ void handleCommand(const std::string& cmd) {
         if (!signData(cmd.substr(5), signature)) {
             printf("ERR_SIGN_FAILED\n");
 
+            logEvent("ERR_SIGN_FAILED");
+
             if (currentState != STATE_TAMPER_LOCKED) {
                 currentState = STATE_IDLE;
             }
@@ -139,6 +144,8 @@ void handleCommand(const std::string& cmd) {
         }
 
         printf("SIGNATURE:%s\n", signature.c_str());
+
+        logEvent("OK_SIGNATURE_CREATED");
 
         if (currentState != STATE_TAMPER_LOCKED) {
             currentState = STATE_IDLE;
@@ -163,15 +170,25 @@ void handleCommand(const std::string& cmd) {
 
         currentState = STATE_PROCESSING;
 
-        zeroize();
+        if (zeroize()) {
+            printf("OK_ZEROIZED\n");
+            logEvent("KEY_ZEROIZED");
+        } else {
+            printf("ERR_ZEROIZE_FAILED\n");
+            logEvent("ERR_ZEROIZE_FAILED");
+        }
 
         if (currentState != STATE_TAMPER_LOCKED) {
-            printf("OK_ZEROIZED\n");
             currentState = STATE_IDLE;
         }
     }
 
+    // ------------------------------------------------
+    // GETTIME
+    // ------------------------------------------------
+
     else if (cmd == "GETTIME") {
+
         RtcDateTime time;
 
         if (!rtcReadTime(time)) {
@@ -181,32 +198,54 @@ void handleCommand(const std::string& cmd) {
 
         printf(
             "TIME:%04u-%02u-%02u %02u:%02u:%02u\n",
-            time.year, time.month, time.day,
-            time.hour, time.minute, time.second
+            time.year,
+            time.month,
+            time.day,
+            time.hour,
+            time.minute,
+            time.second
         );
 
-        // Convert the already-read time struct directly
-        printf("UNIX:%lu\n", static_cast<unsigned long>(convertTimeToUnix(time)));
+        printf(
+            "UNIX:%lu\n",
+            static_cast<unsigned long>(
+                convertTimeToUnix(time)
+            )
+        );
     }
 
-    else if (cmd.rfind("SETTIME:", 0) == 0)
-    {
+    // ------------------------------------------------
+    // SETTIME:<unix timestamp>
+    // ------------------------------------------------
+
+    else if (cmd.rfind("SETTIME:", 0) == 0) {
+
         const char *value = cmd.c_str() + 8;
+
         char *end = nullptr;
-        unsigned long timestamp = strtoul(value, &end, 10);
+
+        unsigned long timestamp =
+            strtoul(value, &end, 10);
 
         if (end == value || *end != '\0') {
             printf("ERR_BAD_TIME\n");
             return;
         }
 
-        if (!rtcSetUnixTime(static_cast<uint32_t>(timestamp))) {
-            printf("ERR_RTC_WRITE\n"); // Changed from ERR_BAD_TIME for better debugging
+        if (!rtcSetUnixTime(
+                static_cast<uint32_t>(timestamp)
+            )) {
+
+            printf("ERR_RTC_WRITE\n");
             return;
         }
 
         printf("OK_TIME_SYNCED\n");
     }
+
+    // ------------------------------------------------
+    // LDRVAL
+    // ------------------------------------------------
 
     else if (cmd == "LDRVAL") {
 
@@ -220,7 +259,7 @@ void handleCommand(const std::string& cmd) {
         }
     }
 
-    // Testing Functions
+        // Testing Functions
 
     // else if (cmd == "RTCREGS") {
     //     rtcDumpRegisters();
@@ -268,6 +307,10 @@ void handleCommand(const std::string& cmd) {
     // else if (cmd == "CHECK_I2C") {
     //     checkI2CLines();
     // }
+
+    // ------------------------------------------------
+    // UNKNOWN
+    // ------------------------------------------------
 
     else {
         printf("ERR_UNKNOWN_COMMAND\n");

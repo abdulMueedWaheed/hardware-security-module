@@ -61,14 +61,7 @@ extern "C" void app_main()
 
     if (initOLED(hwI2cBus)) {
         oledClear();
-        
-        // Draw lines onto the display (Line 0 to 7)
-        oledWriteString(0, 0, "=== ESP32 HSM ===");
-        oledWriteString(2, 0, "STATUS: READY");
-        oledWriteString(4, 0, "TIME: 2026-08-18");
-        oledWriteString(5, 0, "RTC: SYNC OK");
-
-        // Push buffer to OLED screen
+        oledDisplayStatus();
         oledUpdate();
     }
     else {
@@ -89,12 +82,21 @@ extern "C" void app_main()
     vTaskDelay(
         pdMS_TO_TICKS(10)
     );
-
+    int i = 0;
     while (true) {
 
         checkTamper();
 
         updateLEDs();
+
+        if (i == 0) {
+            oledClear();
+            oledDisplayStatus();
+            oledUpdate();
+        }
+        else {
+            i %= 10;
+        }
 
         vTaskDelay(
             pdMS_TO_TICKS(10)

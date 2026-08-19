@@ -77,5 +77,6 @@ void oledClear();
 void oledUpdate();
 void oledWriteString(uint8_t line, uint8_t col, const char *str);
 bool initOLED(i2c_master_bus_handle_t bus_handle);
+void oledDisplayStatus();
 
 #endif
