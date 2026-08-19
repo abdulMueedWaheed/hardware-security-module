@@ -1,10 +1,16 @@
+import re
 import time
-import readline
-
 import serial
 
 DEFAULT_PORT = "/dev/ttyACM0"
 BAUD = 115200
+
+# Strips ESP-IDF log prefixes like "I (12345) TAG: "
+LOG_PREFIX_RE = re.compile(r"^(?:[IWEV]\s*\(\d+\)\s*[\w_]+:\s*)?")
+
+
+def clean_line(line: str) -> str:
+    return LOG_PREFIX_RE.sub("", line).strip()
 
 
 class HSMClient:
@@ -17,7 +23,7 @@ class HSMClient:
         while time.time() - start < wait_seconds:
             try:
                 ser = serial.Serial(port, baudrate=BAUD, timeout=3)
-                time.sleep(2)
+                time.sleep(1.5)
                 ser.reset_input_buffer()
                 return ser
             except serial.SerialException as e:
@@ -29,50 +35,51 @@ class HSMClient:
         lines = []
         self.ser.timeout = idle_timeout
         while True:
-            line = self.ser.readline().decode("ascii", errors="replace").strip()
-            if line == "":
+            raw = self.ser.readline().decode("ascii", errors="replace")
+            if not raw:
                 break
-            lines.append(line)
+            cleaned = clean_line(raw)
+            if cleaned:
+                lines.append(cleaned)
         self.ser.timeout = 3
         return lines
 
     def send(self, cmd: str) -> list[str]:
-        self.ser.write((cmd + "\n").encode("utf-8"))
+        self.ser.write((cmd.strip() + "\n").encode("utf-8"))
         return self.read_multiline()
 
     def send_and_wait_for_auth(self, cmd: str, on_status=None) -> str:
-        TERMINAL_TOKENS = (
+        TERMINAL_PREFIXES = (
             "OK_KEY_GENERATED",
             "OK_ZEROIZED",
-            "ERR_AUTH_TIMEOUT",
-            "TAMPER_DETECTED_KEYS_ZEROIZED",
+            "SIGNATURE:",
+            "ERR_",
+            "TAMPER_DETECTED",
         )
 
-        self.ser.write((cmd + "\n").encode("utf-8"))
-        self.ser.timeout = None
+        self.ser.write((cmd.strip() + "\n").encode("utf-8"))
+        self.ser.timeout = None  # Block until button press or response
         try:
             while True:
-                raw = self.ser.readline()
-                line = raw.decode("ascii", errors="replace").strip()
-
-                if line == "":
-                    continue  # blank line on the wire, not a timeout (timeout=None can't time out)
-
-                if "AWAITING_AUTH_PRESS_BUTTON" in line:
-                    if on_status:
-                        on_status(line)
+                raw = self.ser.readline().decode("ascii", errors="replace")
+                if not raw:
                     continue
 
-                if any(tok in line for tok in TERMINAL_TOKENS):
-                    if on_status and "TAMPER_DETECTED" in line:
-                        on_status(line)
-                    return line
+                cleaned = clean_line(raw)
+                if not cleaned:
+                    continue
 
-                # Unrecognized line (e.g. an unrelated ESP_LOGI/W/E line)
-                # Don't treat it as the answer — surface it and keep waiting.
+                if "AWAITING_AUTH_PRESS_BUTTON" in cleaned:
+                    if on_status:
+                        on_status(cleaned)
+                    continue
+
+                # Check if this line is our final answer
+                if any(cleaned.startswith(prefix) for prefix in TERMINAL_PREFIXES):
+                    return cleaned
+
                 if on_status:
-                    on_status(line)
-                continue
+                    on_status(cleaned)
         finally:
             self.ser.timeout = 3
 
@@ -82,16 +89,11 @@ class HSMClient:
         for l in lines:
             if ":" in l:
                 k, v = l.split(":", 1)
-                result[k] = v
+                result[k.strip()] = v.strip()
         return result
 
     def sync_time(self) -> str:
         lines = self.send(f"SETTIME:{int(time.time())}")
-        return lines[0] if lines else ""
-
-    def encrypt_flash(self, enable: bool = True) -> str:
-        cmd = "ENCRYPT:ON" if enable else "ENCRYPT:OFF"
-        lines = self.send(cmd)
         return lines[0] if lines else ""
 
     def close(self):

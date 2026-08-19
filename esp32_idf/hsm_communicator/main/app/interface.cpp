@@ -17,10 +17,6 @@
 #include "../security/tamper.h"
 #include "../security/crypto_ops.h"
 
-
-static const char * TAG = "INTERFACE";
-
-
 void handleCommand(const std::string& cmd) {
     if (cmd.empty()) {
         return;
@@ -175,9 +171,23 @@ void handleCommand(const std::string& cmd) {
         }
     }
 
-    // ------------------------------------------------
-    // SETTIME:<unix timestamp>
-    // ------------------------------------------------
+    else if (cmd == "GETTIME") {
+        RtcDateTime time;
+
+        if (!rtcReadTime(time)) {
+            printf("ERR_RTC_READ\n");
+            return;
+        }
+
+        printf(
+            "TIME:%04u-%02u-%02u %02u:%02u:%02u\n",
+            time.year, time.month, time.day,
+            time.hour, time.minute, time.second
+        );
+
+        // Convert the already-read time struct directly
+        printf("UNIX:%lu\n", static_cast<unsigned long>(convertTimeToUnix(time)));
+    }
 
     else if (cmd.rfind("SETTIME:", 0) == 0)
     {
@@ -198,75 +208,6 @@ void handleCommand(const std::string& cmd) {
         printf("OK_TIME_SYNCED\n");
     }
 
-    else if (cmd == "GETTIME") {
-        RtcDateTime time;
-
-        if (!rtcReadTime(time)) {
-            printf("ERR_RTC_READ\n");
-            return;
-        }
-
-        printf(
-            "TIME:%04u-%02u-%02u %02u:%02u:%02u\n",
-            time.year, time.month, time.day,
-            time.hour, time.minute, time.second
-        );
-
-        // Convert the already-read time struct directly
-        printf("UNIX:%lu\n", static_cast<unsigned long>(convertTimeToUnix(time)));
-    }
-
-    else if (cmd == "RTCREGS") {
-        rtcDumpRegisters();
-    }
-
-    else if (cmd == "RAWREAD") {
-        if(!rtcRawRead()) {
-            ESP_LOGE(TAG, "Failed to read!");
-        }
-    }
-
-    // else if (cmd == "RSR_READ") {
-    //     if(!rtcExplicitRepeatedStartRead())
-    //         ESP_LOGE(TAG, "FAILED repeated read write");
-    // }
-
-    // else if (cmd == "RAWREADONE") {
-    //     if(!rtcRawReadOneByte()) {
-    //         ESP_LOGE(TAG, "Failed to read one byte!");
-    //     }
-    // }
-
-    else if (cmd == "RAWWRITE") {
-        if(!rtcRawWrite()) {
-            ESP_LOGE(TAG, "Failed to write!");
-        }
-    }
-
-    else if (cmd == "DUMMY_WRITE") {
-        if(!rtcRawWriteDummyTest(hwI2cBus)) {
-            ESP_LOGE(TAG, "Failed to write to dummy address!");
-        }
-    }
-
-    else if (cmd == "RS_READ") {
-        if(!rtcRepeatedStartRead()) {
-            ESP_LOGE(TAG, "Failed to write!");
-        }
-    }
-
-    else if (cmd == "PROBE") {
-        probeRTC(hwI2cBus);
-    }
-
-    else if (cmd == "CHECK_I2C") {
-        checkI2CLines();
-    }
-
-    // ------------------------------------------------
-    // LDRVAL
-    // ------------------------------------------------
-
     else if (cmd == "LDRVAL") {
 
         int reading = readLDRAveraged();
@@ -279,9 +220,54 @@ void handleCommand(const std::string& cmd) {
         }
     }
 
-    // ------------------------------------------------
-    // Unknown command
-    // ------------------------------------------------
+    // Testing Functions
+
+    // else if (cmd == "RTCREGS") {
+    //     rtcDumpRegisters();
+    // }
+
+    // else if (cmd == "RAWREAD") {
+    //     if(!rtcRawRead()) {
+    //         ESP_LOGE(TAG, "Failed to read!");
+    //     }
+    // }
+
+    // else if (cmd == "RSR_READ") {
+    //     if(!rtcExplicitRepeatedStartRead())
+    //         ESP_LOGE(TAG, "FAILED repeated read write");
+    // }
+
+    // else if (cmd == "RAWREADONE") {
+    //     if(!rtcRawReadOneByte()) {
+    //         ESP_LOGE(TAG, "Failed to read one byte!");
+    //     }
+    // }
+
+    // else if (cmd == "RAWWRITE") {
+    //     if(!rtcRawWrite()) {
+    //         ESP_LOGE(TAG, "Failed to write!");
+    //     }
+    // }
+
+    // else if (cmd == "DUMMY_WRITE") {
+    //     if(!rtcRawWriteDummyTest(hwI2cBus)) {
+    //         ESP_LOGE(TAG, "Failed to write to dummy address!");
+    //     }
+    // }
+
+    // else if (cmd == "RS_READ") {
+    //     if(!rtcRepeatedStartRead()) {
+    //         ESP_LOGE(TAG, "Failed to write!");
+    //     }
+    // }
+
+    // else if (cmd == "PROBE") {
+    //     probeRTC(hwI2cBus);
+    // }
+
+    // else if (cmd == "CHECK_I2C") {
+    //     checkI2CLines();
+    // }
 
     else {
         printf("ERR_UNKNOWN_COMMAND\n");

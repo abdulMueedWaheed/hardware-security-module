@@ -3,14 +3,16 @@ import sys
 from datetime import datetime
 
 from crypto_utils import parse_pubkey, verify_signature
-from hsm_client import HSMClient
+from hsm_client import HSMClient, clean_line
 
-LOG_LINE_RE = re.compile(r"^#(\d+) \[(\d+|unsynced)\] (.+)$")
+LOG_LINE_RE = re.compile(r"^#(\d+)\s+\[(\d+|unsynced)\]\s+(.+)$")
+
 
 def parse_log_line(line: str) -> dict:
-    m = LOG_LINE_RE.match(line)
+    cleaned = clean_line(line)
+    m = LOG_LINE_RE.match(cleaned)
     if not m:
-        return {"seq": None, "time": None, "event": line}
+        return {"seq": None, "time": None, "event": cleaned}
     seq, ts, event = m.groups()
     if ts == "unsynced":
         time_str = "— (unsynced)"
@@ -38,13 +40,18 @@ def main():
 
     running = True
     while running:
-        msg = input("Input to Chip: ").strip()
+        try:
+            msg = input("Input to Chip: ").strip()
+        except (KeyboardInterrupt, EOFError):
+            print("\nExiting...")
+            break
+
         if msg == "":
             continue
-        
-        if msg == "EXIT":
+
+        if msg.upper() == "EXIT":
             running = False
-        
+
         elif msg.upper().startswith("SIGN:"):
             plaintext = msg[5:]
             hex_data = plaintext.encode("utf-8").hex()
@@ -52,28 +59,35 @@ def main():
                 f"SIGN:{hex_data}",
                 on_status=lambda l: print(">>>", l)
             )
-        
-            pubkey_hex = hsm.send("GETPUBKEY")[0]
+
+            pub_lines = hsm.send("GETPUBKEY")
+            pubkey_hex = pub_lines[0] if pub_lines else ""
             vk = parse_pubkey(pubkey_hex)
-        
+
             if vk and verify_signature(vk, response, hex_data):
-                print("SUCCESS —", response)
+                print("SUCCESS (Signature Validated) —", response)
             else:
-                print("FAILED —", response)
-        
+                print("FAILED (Signature Verification Failed) —", response)
+
         elif msg.upper() in ("GENKEY", "ZEROIZE"):
-            print("Waiting for button press (Ctrl+C to abort)...")
+            print("Waiting for physical button press (Ctrl+C to abort)...")
             try:
-                print(hsm.send_and_wait_for_auth(msg.upper(), on_status=lambda l: print(">>>", l)))
+                res = hsm.send_and_wait_for_auth(msg.upper(), on_status=lambda l: print(">>>", l))
+                print(res)
             except KeyboardInterrupt:
-                print("\nAborted — note: firmware may still complete the operation independently.")
-        
+                print("\nAborted in CLI — note: firmware may still complete operation.")
+
         else:
             for line in hsm.send(msg):
-                print(parse_log_line(line))
+                parsed = parse_log_line(line)
+                if parsed["seq"] is not None:
+                    print(f"  #{parsed['seq']} [{parsed['time']}] {parsed['event']}")
+                else:
+                    print(parsed["event"])
 
     hsm.close()
     print("Ok bye!")
+
 
 if __name__ == "__main__":
     main()
